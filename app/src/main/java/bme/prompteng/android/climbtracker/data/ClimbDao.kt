@@ -15,4 +15,7 @@ interface ClimbDao {
 
     @Query("DELETE FROM climbs WHERE id = (SELECT MAX(id) FROM climbs)")
     suspend fun deleteLastClimb()
+
+    @androidx.room.Delete
+    suspend fun deleteClimb(climb: ClimbEntity)
 }

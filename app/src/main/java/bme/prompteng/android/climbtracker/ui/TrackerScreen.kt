@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import bme.prompteng.android.climbtracker.model.ClimbGrade
 
 @Composable
-fun TrackerScreen(viewModel: ClimbViewModel, onNavigateToTraining: () -> Unit) {
+fun TrackerScreen(viewModel: ClimbViewModel) {
     val climbs by viewModel.climbs.collectAsState()
     val averageGrade by viewModel.averageGrade.collectAsState()
 
@@ -92,9 +92,6 @@ fun TrackerScreen(viewModel: ClimbViewModel, onNavigateToTraining: () -> Unit) {
         }
 
         Spacer(modifier = Modifier.weight(1f))
-        Button(onClick = onNavigateToTraining, modifier = Modifier.fillMaxWidth()) {
-            Text("Get Training Plan")
-        }
     }
 }
 

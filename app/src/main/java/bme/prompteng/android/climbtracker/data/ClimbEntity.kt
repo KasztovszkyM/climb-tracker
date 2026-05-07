@@ -7,5 +7,6 @@ import androidx.room.PrimaryKey
 data class ClimbEntity(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val gradeValue: Int,
+    val climbType: String = "Static",
     val timestamp: Long = System.currentTimeMillis()
 )

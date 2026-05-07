@@ -11,7 +11,6 @@ import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -33,13 +32,17 @@ import bme.prompteng.android.climbtracker.ui.ProfileScreen
 import bme.prompteng.android.climbtracker.ui.TrackerScreen
 import bme.prompteng.android.climbtracker.ui.TrainingScreen
 
+import androidx.compose.runtime.collectAsState
+import bme.prompteng.android.climbtracker.ui.theme.ClimbTrackerTheme
+
 class MainActivity : ComponentActivity() {
     private val viewModel: ClimbViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            val isDarkMode by viewModel.isDarkMode.collectAsState()
+            ClimbTrackerTheme(darkTheme = isDarkMode ?: androidx.compose.foundation.isSystemInDarkTheme()) {
                 Surface {
                     BoulderingApp(viewModel)
                 }

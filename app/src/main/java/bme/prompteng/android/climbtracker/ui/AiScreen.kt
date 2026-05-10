@@ -2,6 +2,7 @@ package bme.prompteng.android.climbtracker.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import bme.prompteng.android.climbtracker.ui.utils.copyUriToFile
@@ -34,6 +35,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import bme.prompteng.android.climbtracker.model.ClimbingHold
 import bme.prompteng.android.climbtracker.ui.beta.BetaGeneratorViewModel
 import bme.prompteng.android.climbtracker.ui.beta.BetaGeneratorViewModelFactory
@@ -71,7 +74,8 @@ data class ChatMessage(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiScreen(
-    viewModel: BetaGeneratorViewModel = viewModel(factory = BetaGeneratorViewModel.Factory)
+    viewModel: BetaGeneratorViewModel = viewModel(factory = BetaGeneratorViewModel.Factory),
+    onHome: () -> Unit
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
@@ -118,15 +122,6 @@ fun AiScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("AI Route Setter", fontWeight = FontWeight.Bold) },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            )
-        },
         bottomBar = {
             // Pass the attached image state to the input bar
             ChatInputBar(
@@ -164,29 +159,64 @@ fun AiScreen(
             )
         }
     ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(paddingValues).padding(horizontal = 16.dp),
-            contentPadding = PaddingValues(vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // 3. Render the messages properly
-            items(chatMessages) { message ->
-                if (message.isRouteBeta) {
-                    // Átadjuk a képarányt és a leírást az üzenetből!
-                    BotResultBubble(
-                        imageUri = message.imageUri, 
-                        holds = message.holds, 
-                        imageAspectRatio = message.imageAspectRatio,
-                        description = message.betaDescription
+        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+            // Logo Header (Exactly matching TrackerScreen style)
+            Surface(
+                color = MaterialTheme.colorScheme.background,
+                tonalElevation = 2.dp
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+                        Text(
+                            text = "CLIMBETTER",
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .clickable { onHome() },
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 2.sp,
+                                color = Color(0xFF4DB6AC)
+                            )
+                        )
+                    }
+                    // AI Subtitle
+                    Text(
+                        text = "AI ROUTE SETTER",
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 2.sp,
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                        ),
+                        modifier = Modifier.padding(bottom = 12.dp)
                     )
-                } else {
-                    ChatBubble(message = message)
                 }
             }
 
-            // 4. Render the Loading Indicator at the bottom ONLY when loading
-            if (uiState is BetaUiState.Loading) {
-                item { AiTypingIndicator() }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // 3. Render the messages properly
+                items(chatMessages) { message ->
+                    if (message.isRouteBeta) {
+                        // Átadjuk a képarányt és a leírást az üzenetből!
+                        BotResultBubble(
+                            imageUri = message.imageUri, 
+                            holds = message.holds, 
+                            imageAspectRatio = message.imageAspectRatio,
+                            description = message.betaDescription
+                        )
+                    } else {
+                        ChatBubble(message = message)
+                    }
+                }
+
+                // 4. Render the Loading Indicator at the bottom ONLY when loading
+                if (uiState is BetaUiState.Loading) {
+                    item { AiTypingIndicator() }
+                }
             }
         }
     }

@@ -37,7 +37,7 @@ import androidx.compose.material.icons.filled.LightMode
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TrackerScreen(viewModel: ClimbViewModel) {
+fun TrackerScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
     val climbs by viewModel.climbs.collectAsState()
     val averageGrade by viewModel.averageGrade.collectAsState()
     val filterDate by viewModel.filterDate.collectAsState()
@@ -91,18 +91,20 @@ fun TrackerScreen(viewModel: ClimbViewModel) {
                 .verticalScroll(scrollState),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Section 1: Logging Controls (Unified Full Screen experience)
+            // Section 1: Logging Controls
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = fullHeight)
-                    .padding(16.dp),
+                    .heightIn(min = fullHeight),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Box(modifier = Modifier.fillMaxWidth()) {
+                // Header standard: Box with 16dp padding
+                Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                     Text(
                         text = "CLIMBETTER",
-                        modifier = Modifier.align(Alignment.Center),
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .clickable { onHome() },
                         textAlign = TextAlign.Center,
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
@@ -121,106 +123,113 @@ fun TrackerScreen(viewModel: ClimbViewModel) {
                     }
                 }
                 
-                // Motivational Quote Line
-                Card(
+                // Logging Content
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 12.dp)
-                        .clickable { viewModel.refreshQuote() },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                    shape = RoundedCornerShape(12.dp)
+                        .padding(horizontal = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = currentQuote,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Climb Type Selection Row
-                Text("Select Type:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    climbTypes.forEach { type ->
-                        val isSelected = selectedType == type
-                        OutlinedButton(
-                            onClick = { selectedType = type },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                                contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary
-                            ),
-                            modifier = Modifier.height(32.dp).padding(horizontal = 2.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            border = if (isSelected) null else ButtonDefaults.outlinedButtonBorder
-                        ) {
-                            Text(type, style = MaterialTheme.typography.labelSmall, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
-                        }
+                    // Motivational Quote Line
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp)
+                            .clickable { viewModel.refreshQuote() },
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = currentQuote,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        )
                     }
-                }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                // Grade logging buttons
-                val grades = ClimbGrade.entries.toTypedArray()
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    for (i in grades.indices step 2) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().weight(1f),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            GradeButton(
-                                grade = grades[i],
-                                modifier = Modifier.weight(1f).fillMaxHeight()
-                            ) { viewModel.addClimb(grades[i], selectedType) }
-                            if (i + 1 < grades.size) {
-                                GradeButton(
-                                    grade = grades[i + 1],
-                                    modifier = Modifier.weight(1f).fillMaxHeight()
-                                ) { viewModel.addClimb(grades[i + 1], selectedType) }
-                            } else {
-                                Spacer(modifier = Modifier.weight(1f))
+                    // Climb Type Selection Row
+                    Text("Select Type:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        climbTypes.forEach { type ->
+                            val isSelected = selectedType == type
+                            OutlinedButton(
+                                onClick = { selectedType = type },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary
+                                ),
+                                modifier = Modifier.height(32.dp).padding(horizontal = 2.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text(type, style = MaterialTheme.typography.labelSmall, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
                             }
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    Button(
-                        onClick = { viewModel.undoLastClimb() },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Gray),
-                        modifier = Modifier.width(150.dp).height(40.dp)
+                    // Grade logging buttons
+                    val grades = ClimbGrade.entries.toTypedArray()
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Text("Undo Last")
+                        for (i in grades.indices step 2) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().height(80.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                GradeButton(
+                                    grade = grades[i],
+                                    modifier = Modifier.weight(1f).fillMaxHeight()
+                                ) { viewModel.addClimb(grades[i], selectedType) }
+                                if (i + 1 < grades.size) {
+                                    GradeButton(
+                                        grade = grades[i + 1],
+                                        modifier = Modifier.weight(1f).fillMaxHeight()
+                                    ) { viewModel.addClimb(grades[i + 1], selectedType) }
+                                } else {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
                     }
 
-                    Button(
-                        onClick = { showHistoryDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
-                        modifier = Modifier.width(150.dp).height(40.dp)
-                    ) {
-                        Text("History")
-                    }
-                }
+                    Spacer(modifier = Modifier.height(24.dp))
 
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Scroll down for statistics ↓", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        Button(
+                            onClick = { viewModel.undoLastClimb() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Gray),
+                            modifier = Modifier.width(150.dp).height(40.dp)
+                        ) {
+                            Text("Undo Last")
+                        }
+
+                        Button(
+                            onClick = { showHistoryDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                            modifier = Modifier.width(150.dp).height(40.dp)
+                        ) {
+                            Text("History")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Scroll down for statistics ↓", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
             }
 
             // Section 2: Statistics and Charts

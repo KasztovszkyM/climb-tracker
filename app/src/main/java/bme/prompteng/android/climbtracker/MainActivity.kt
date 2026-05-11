@@ -89,22 +89,34 @@ fun BoulderingApp(viewModel: ClimbViewModel) {
         }
     ) { innerPadding ->
         NavHost(navController = navController, startDestination = Screen.Tracker.route, Modifier.padding(innerPadding)) {
+            val navigateHome = {
+                navController.navigate(Screen.Tracker.route) {
+                    popUpTo(navController.graph.findStartDestination().id) {
+                        saveState = true
+                    }
+                    restoreState = true
+                    launchSingleTop = true
+                }
+            }
+
             composable(Screen.Tracker.route) {
                 TrackerScreen(
-                    viewModel = viewModel
+                    viewModel = viewModel,
+                    onHome = navigateHome
                 )
             }
             composable(Screen.Ai.route) {
-                AiScreen()
+                AiScreen(onHome = navigateHome)
             }
             composable(Screen.Workout.route) {
                 TrainingScreen(
                     viewModel = viewModel,
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onHome = navigateHome
                 )
             }
             composable(Screen.Profile.route) {
-                ProfileScreen()
+                ProfileScreen(viewModel = viewModel, onHome = navigateHome)
             }
         }
     }

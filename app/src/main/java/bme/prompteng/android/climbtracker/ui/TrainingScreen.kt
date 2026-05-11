@@ -40,33 +40,37 @@ import bme.prompteng.android.climbtracker.model.WorkoutCategory
 import bme.prompteng.android.climbtracker.model.WorkoutPlan
 
 @Composable
-fun TrainingScreen(viewModel: ClimbViewModel, onBack: () -> Unit) {
+fun TrainingScreen(viewModel: ClimbViewModel, onBack: () -> Unit, onHome: () -> Unit) {
     val currentState by viewModel.trainingState.collectAsState()
     val isLoading by viewModel.isLoadingPlan.collectAsState()
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Row(
+            // Logo Header (Matching TrackerScreen/ProfileScreen style)
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(16.dp)
             ) {
-                IconButton(onClick = onBack) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.align(Alignment.CenterStart)
+                ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary)
                 }
+                
                 Text(
                     text = "CLIMBETTER",
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .clickable { onHome() },
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.titleLarge.copy(
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 2.sp,
-                        color =  Color(0xFF4DB6AC)
+                        color = Color(0xFF4DB6AC)
                     )
                 )
-                // Spacer to balance the back button
-                Box(modifier = Modifier.size(48.dp))
             }
 
             AnimatedContent(

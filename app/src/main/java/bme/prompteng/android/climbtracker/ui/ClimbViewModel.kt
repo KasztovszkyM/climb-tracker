@@ -3,6 +3,7 @@ package bme.prompteng.android.climbtracker.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import bme.prompteng.android.climbtracker.BuildConfig
 import bme.prompteng.android.climbtracker.data.AppDatabase
 import bme.prompteng.android.climbtracker.data.ClimbEntity
 import bme.prompteng.android.climbtracker.model.*
@@ -28,7 +29,7 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
     private val geminiApi = GeminiApi.create()
     private val context = application.applicationContext
 
-    private val apiKey = "Use your API Key"
+    private val apiKey = BuildConfig.GEMINI_API_KEY_TRAINING
 
     private val _filterDate = MutableStateFlow<Long?>(null)
     val filterDate: StateFlow<Long?> = _filterDate.asStateFlow()

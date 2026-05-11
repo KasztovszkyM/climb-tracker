@@ -1,7 +1,20 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlin.compose)
+}
+
+// Function to load .env variables
+fun getEnvProperty(key: String): String {
+    val envFile = rootProject.file(".env")
+    if (envFile.exists()) {
+        val properties = Properties()
+        envFile.inputStream().use { properties.load(it) }
+        return properties.getProperty(key) ?: ""
+    }
+    return ""
 }
 
 android {
@@ -19,6 +32,10 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // Expose API keys via BuildConfig
+        buildConfigField("String", "GEMINI_API_KEY_TRAINING", "\"${getEnvProperty("GEMINI_API_KEY_TRAINING")}\"")
+        buildConfigField("String", "GEMINI_API_KEY_BETA", "\"${getEnvProperty("GEMINI_API_KEY_BETA")}\"")
     }
 
     buildTypes {
@@ -36,6 +53,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
@@ -65,6 +83,14 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
     implementation(libs.gson)
+
+    // CameraX
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.androidx.camera.extensions)
+    implementation("io.coil-kt:coil-compose:2.6.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

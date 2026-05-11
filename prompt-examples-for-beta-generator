@@ -1,0 +1,18 @@
+1. Szerepkör-kijelölés (Role Prompting): „Te egy profi alkalmazásfejlesztő vagy, aki nagy tapasztalattal rendelkezik Android Studio alkalmazások készítésében.”
+
+2. Láncolt gondolatmenet (Chain-of-Thoughts - CoT): „Az alkalmazás most megtalál a felhasználó által kért adott színű fogásokat, de az útvonalat fentről lefelé tervezi, lefelé mutató nyilakkal!”
+
+3. Lánc promptolás (Chain Prompting): „Egészítsd ki az alábbiakkal, hogy ne dobjon 403-as hibaüzenetet: [kód részlet]” – majd a javítás után: „Adjon előtte egy szöveges leírást lépésekbe sorolva arról, hogy milyen technikával lehet megmászni az adott sorrendben az utat!”
+
+4. Least-to-Most Prompting:
+4.1.lépés: „A ProfileScreen legyen a csatolt képhez hasonló felépítésű...”
+4.2.lépés: „A név legyen szerkeszthető, a mászási szint pedig egy legördülő listából választható...”
+4.3.lépés: „A magasságnál cm, a súlynál pedig kg legyen a kiírt mérték!”
+
+5. One-Shot / Image Prompting
+Képernyőterveket csatoltam referenciaként, hogy az AI-nak ne kelljen kitalálnia a designt.
+[Profil-mockup kép csatolva] + „A ProfileScreen legyen a csatolt képhez hasonló felépítésű.”
+
+6. Knowledge Generation Prompting
+Megkértem az AI-t, hogy saját tudásbázisából generáljon szakmai tartalmat a kódba.
+„Adjon előtte egy szöveges leírást lépésekbe sorolva arról, hogy milyen technikával lehet megmászni az adott sorrendben az utat!” (Itt az AI-nak a falmászó technikákat kellett generálnia).

@@ -2,11 +2,8 @@ package bme.prompteng.android.climbtracker.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
-import bme.prompteng.android.climbtracker.ui.utils.copyUriToFile
-import android.content.Context
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -30,18 +27,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.sp
+import bme.prompteng.android.climbtracker.ui.components.ClimbetterHeader
 import bme.prompteng.android.climbtracker.model.ClimbingHold
 import bme.prompteng.android.climbtracker.ui.beta.BetaGeneratorViewModel
-import bme.prompteng.android.climbtracker.ui.beta.BetaGeneratorViewModelFactory
 import bme.prompteng.android.climbtracker.ui.beta.BetaUiState
-import java.io.File
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -56,7 +49,6 @@ import androidx.compose.material.icons.rounded.Send
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
-import java.io.FileOutputStream
 import java.util.UUID
 
 // --- 1. Chat Message Data Model ---
@@ -75,10 +67,12 @@ data class ChatMessage(
 @Composable
 fun AiScreen(
     viewModel: BetaGeneratorViewModel = viewModel(factory = BetaGeneratorViewModel.Factory),
+    climbViewModel: ClimbViewModel,
     onHome: () -> Unit
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+    val isDarkMode by climbViewModel.isDarkMode.collectAsState()
 
     var chatMessages by remember { mutableStateOf(listOf<ChatMessage>()) }
     var inputText by remember { mutableStateOf("") }
@@ -123,7 +117,7 @@ fun AiScreen(
 
     Scaffold(
         bottomBar = {
-            // Pass the attached image state to the input bar
+            // ... (keep ChatInputBar)
             ChatInputBar(
                 inputText = inputText,
                 attachedImageUri = attachedImageUri,
@@ -159,42 +153,16 @@ fun AiScreen(
             )
         }
     ) { paddingValues ->
-        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+        Column(modifier = Modifier.fillMaxSize()) {
             // Logo Header (Exactly matching TrackerScreen style)
-            Surface(
-                color = MaterialTheme.colorScheme.background,
-                tonalElevation = 2.dp
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                        Text(
-                            text = "CLIMBETTER",
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .clickable { onHome() },
-                            textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 2.sp,
-                                color = Color(0xFF4DB6AC)
-                            )
-                        )
-                    }
-                    // AI Subtitle
-                    Text(
-                        text = "AI ROUTE SETTER",
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 2.sp,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-                        ),
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-                }
-            }
+            ClimbetterHeader(
+                onHome = onHome,
+                isDarkMode = isDarkMode,
+                onToggleDarkMode = { climbViewModel.toggleDarkMode() }
+            )
 
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).padding(bottom = paddingValues.calculateBottomPadding()),
                 contentPadding = PaddingValues(vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -223,7 +191,6 @@ fun AiScreen(
 }
 
 // --- UI Components ---
-
 @Composable
 fun ChatInputBar(
     inputText: String,
@@ -464,20 +431,20 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawArrowHead(
     end: androidx.compose.ui.geometry.Offset,
     color: Color
 ) {
-    val angle = java.lang.Math.atan2((end.y - start.y).toDouble(), (end.x - start.x).toDouble())
+    val angle = Math.atan2((end.y - start.y).toDouble(), (end.x - start.x).toDouble())
     val arrowLength = 40f
-    val arrowAngle = java.lang.Math.PI / 6 // 30 degrees
+    val arrowAngle = Math.PI / 6 // 30 degrees
 
     val path = Path().apply {
         moveTo(end.x, end.y)
         lineTo(
-            (end.x - arrowLength * java.lang.Math.cos(angle - arrowAngle)).toFloat(),
-            (end.y - arrowLength * java.lang.Math.sin(angle - arrowAngle)).toFloat()
+            (end.x - arrowLength * Math.cos(angle - arrowAngle)).toFloat(),
+            (end.y - arrowLength * Math.sin(angle - arrowAngle)).toFloat()
         )
         moveTo(end.x, end.y)
         lineTo(
-            (end.x - arrowLength * java.lang.Math.cos(angle + arrowAngle)).toFloat(),
-            (end.y - arrowLength * java.lang.Math.sin(angle + arrowAngle)).toFloat()
+            (end.x - arrowLength * Math.cos(angle + arrowAngle)).toFloat(),
+            (end.y - arrowLength * Math.sin(angle + arrowAngle)).toFloat()
         )
     }
 
@@ -506,18 +473,3 @@ fun AiTypingIndicator() {
         }
     }
 }
-
-// Utility function to copy URI to File (From previous implementation)
-/*
-fun copyUriToFile(context: Context, uri: Uri): File {
-    val mimeType = context.contentResolver.getType(uri)
-    val extension = if (mimeType?.startsWith("video/") == true) ".mp4" else ".jpg"
-    val tempFile = File(context.cacheDir, "gallery_media_${System.currentTimeMillis()}$extension")
-    context.contentResolver.openInputStream(uri)?.use { inputStream ->
-        FileOutputStream(tempFile).use { outputStream ->
-            inputStream.copyTo(outputStream)
-        }
-    }
-    return tempFile
-}
-*/

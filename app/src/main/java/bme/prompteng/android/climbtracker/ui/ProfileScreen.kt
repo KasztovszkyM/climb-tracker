@@ -27,11 +27,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import bme.prompteng.android.climbtracker.ui.components.ClimbetterHeader
 import coil.compose.AsyncImage
 
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.LightMode
 import bme.prompteng.android.climbtracker.model.ClimbGrade
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -72,20 +71,11 @@ fun ProfileScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Logo Header (Matching TrackerScreen style)
-        Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(
-                text = "CLIMBETTER",
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .clickable { onHome() },
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 2.sp,
-                    color = Color(0xFF4DB6AC)
-                )
-            )
-        }
+        ClimbetterHeader(
+            onHome = onHome,
+            isDarkMode = isDarkMode,
+            onToggleDarkMode = { viewModel.toggleDarkMode() }
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 

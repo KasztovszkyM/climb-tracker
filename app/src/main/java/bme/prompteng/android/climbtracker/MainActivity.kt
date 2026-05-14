@@ -106,7 +106,10 @@ fun BoulderingApp(viewModel: ClimbViewModel) {
                 )
             }
             composable(Screen.Ai.route) {
-                AiScreen(onHome = navigateHome)
+                AiScreen(
+                    climbViewModel = viewModel,
+                    onHome = navigateHome
+                )
             }
             composable(Screen.Workout.route) {
                 TrainingScreen(

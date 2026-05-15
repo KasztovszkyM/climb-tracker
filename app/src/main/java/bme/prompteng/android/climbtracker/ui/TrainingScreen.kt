@@ -39,7 +39,7 @@ import bme.prompteng.android.climbtracker.model.WorkoutCategory
 import bme.prompteng.android.climbtracker.model.WorkoutPlan
 
 @Composable
-fun TrainingScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
+fun TrainingScreen(viewModel: ClimbViewModel, onBack: () -> Unit, onHome: () -> Unit) {
     val currentState by viewModel.trainingState.collectAsState()
     val isLoading by viewModel.isLoadingPlan.collectAsState()
     val isDarkMode by viewModel.isDarkMode.collectAsState()

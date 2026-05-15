@@ -1,6 +1,8 @@
 package bme.prompteng.android.climbtracker.ui
 
 import android.app.Application
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import bme.prompteng.android.climbtracker.BuildConfig
@@ -11,12 +13,16 @@ import bme.prompteng.android.climbtracker.network.Content
 import bme.prompteng.android.climbtracker.network.GeminiApi
 import bme.prompteng.android.climbtracker.network.GeminiRequest
 import bme.prompteng.android.climbtracker.network.Part
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 import java.util.Calendar
 import kotlin.math.abs
+import androidx.core.content.edit
+import androidx.core.net.toUri
 
 sealed class TrainingState {
     object CategorySelection : TrainingState()
@@ -31,6 +37,8 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
 
     private val apiKey = BuildConfig.GEMINI_API_KEY_TRAINING
 
+    private val prefs = application.getSharedPreferences("climb_prefs", Context.MODE_PRIVATE)
+
     private val _filterDate = MutableStateFlow<Long?>(null)
     val filterDate: StateFlow<Long?> = _filterDate.asStateFlow()
 
@@ -44,12 +52,82 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleDarkMode() {
         val current = _isDarkMode.value ?: false
-        _isDarkMode.value = !current
+        val newMode = !current
+        _isDarkMode.value = newMode
+        prefs.edit { putBoolean("dark_mode", newMode) }
+    }
+
+    // Profile fields
+    private val _profileName = MutableStateFlow(prefs.getString("profile_name", "Profile") ?: "Profile")
+    val profileName = _profileName.asStateFlow()
+
+    private val _profileHeight = MutableStateFlow(prefs.getInt("profile_height", 160))
+    val profileHeight = _profileHeight.asStateFlow()
+
+    private val _profileWeight = MutableStateFlow(prefs.getInt("profile_weight", 55))
+    val profileWeight = _profileWeight.asStateFlow()
+
+    private val _profileGrade = MutableStateFlow(
+        ClimbGrade.entries.find { it.name == prefs.getString("profile_grade", ClimbGrade.WHITE.name) } ?: ClimbGrade.WHITE
+    )
+    val profileGrade = _profileGrade.asStateFlow()
+
+    private val _profileImageUri = MutableStateFlow<Uri?>(
+        prefs.getString("profile_image_uri", null)?.toUri()
+    )
+    val profileImageUri = _profileImageUri.asStateFlow()
+
+    fun updateProfileName(name: String) {
+        _profileName.value = name
+        prefs.edit { putString("profile_name", name) }
+    }
+
+    fun updateProfileHeight(height: Int) {
+        _profileHeight.value = height
+        prefs.edit { putInt("profile_height", height) }
+    }
+
+    fun updateProfileWeight(weight: Int) {
+        _profileWeight.value = weight
+        prefs.edit { putInt("profile_weight", weight) }
+    }
+
+    fun updateProfileGrade(grade: ClimbGrade) {
+        _profileGrade.value = grade
+        prefs.edit { putString("profile_grade", grade.name) }
+    }
+
+    fun updateProfileImageUri(uri: Uri?) {
+        if (uri == null) {
+            _profileImageUri.value = null
+            prefs.edit().remove("profile_image_uri").apply()
+            return
+        }
+
+        // Copy to internal storage for persistence
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val file = File(context.filesDir, "profile_image.jpg")
+                inputStream?.use { input ->
+                    file.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                val internalUri = Uri.fromFile(file)
+                _profileImageUri.value = internalUri
+                prefs.edit { putString("profile_image_uri", internalUri.toString()) }
+            } catch (e: Exception) {
+                _profileImageUri.value = uri
+                prefs.edit().putString("profile_image_uri", uri.toString()).apply()
+            }
+        }
     }
 
     init {
         loadQuotes()
         refreshQuote()
+        _isDarkMode.value = if (prefs.contains("dark_mode")) prefs.getBoolean("dark_mode", false) else null
     }
 
     private fun loadQuotes() {

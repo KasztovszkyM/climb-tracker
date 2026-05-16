@@ -179,7 +179,11 @@ fun AiScreen(
                     onSendClick = {
                         if (inputText.isNotBlank() || attachedImageUri != null) {
                             attachedImageUri?.let { uri ->
-                                viewModel.generateBeta(context, uri, inputText)
+                                viewModel.generateBeta(
+                                    context,
+                                    uri,
+                                    inputText
+                                )
                             } ?: run {
                                 // If text only, we might want to support it later, 
                                 // but current generateBeta requires an image.

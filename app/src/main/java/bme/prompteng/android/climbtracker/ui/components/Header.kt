@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -21,6 +22,7 @@ fun ClimbetterHeader(
     onHome: () -> Unit,
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
+    onHistory: (() -> Unit)? = null,
     isDarkMode: Boolean? = null,
     onToggleDarkMode: (() -> Unit)? = null,
     subtitle: String? = null
@@ -40,6 +42,17 @@ fun ClimbetterHeader(
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            } else if (onHistory != null) {
+                IconButton(
+                    onClick = onHistory,
+                    modifier = Modifier.align(Alignment.CenterStart)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.History,
+                        contentDescription = "History",
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }

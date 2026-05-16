@@ -90,7 +90,8 @@ fun TrainingScreen(viewModel: ClimbViewModel, onBack: () -> Unit, onHome: () -> 
                         WorkoutExecutionContent(
                             viewModel = viewModel,
                             isLoading = isLoading,
-                            onFinish = { viewModel.resetWorkout() }
+                            onFinish = { viewModel.resetWorkout() },
+                            onBack = { viewModel.resetWorkout() }
                         )
                     }
                 }
@@ -201,7 +202,8 @@ fun FocusButton(focus: TrainingFocus, onClick: () -> Unit) {
 fun WorkoutExecutionContent(
     viewModel: ClimbViewModel,
     isLoading: Boolean,
-    onFinish: () -> Unit
+    onFinish: () -> Unit,
+    onBack: () -> Unit
 ) {
     val workoutState = viewModel.currentWorkout.collectAsState()
     val workout: WorkoutPlan? = workoutState.value
@@ -227,6 +229,12 @@ fun WorkoutExecutionContent(
                     color = MaterialTheme.colorScheme.primary
                 )
             )
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp)
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary)
+            }
         }
 
         if (isLoading) {

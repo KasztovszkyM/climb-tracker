@@ -12,6 +12,7 @@ data class WorkoutPlan(
     val id: String = java.util.UUID.randomUUID().toString(),
     val title: String,
     val category: WorkoutCategory,
+    val focus: TrainingFocus? = null,
     val exercises: List<Exercise> = emptyList()
 )
 

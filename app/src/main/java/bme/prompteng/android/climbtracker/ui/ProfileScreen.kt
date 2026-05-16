@@ -1,6 +1,5 @@
 package bme.prompteng.android.climbtracker.ui
 
-import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -10,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -23,15 +23,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import bme.prompteng.android.climbtracker.ui.components.ClimbetterHeader
 import coil.compose.AsyncImage
 
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.LightMode
 import bme.prompteng.android.climbtracker.model.ClimbGrade
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -41,13 +41,13 @@ fun ProfileScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
     val isSystemDark = androidx.compose.foundation.isSystemInDarkTheme()
     val effectivelyDark = isDarkMode ?: isSystemDark
 
-    var name by rememberSaveable { mutableStateOf("Jon Doe") }
-    var height by rememberSaveable { mutableIntStateOf(160) }
-    var weight by rememberSaveable { mutableIntStateOf(55) }
-    var selectedGrade by rememberSaveable { mutableStateOf(ClimbGrade.WHITE) }
-    var profileImageUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    val name by viewModel.profileName.collectAsState()
+    val height by viewModel.profileHeight.collectAsState()
+    val weight by viewModel.profileWeight.collectAsState()
+    val selectedGrade by viewModel.profileGrade.collectAsState()
+    val profileImageUri by viewModel.profileImageUri.collectAsState()
     
-    var isEditingName by remember { mutableStateOf(false) }
+    var isEditingName by rememberSaveable { mutableStateOf(false) }
 
     val tips = listOf(
         "Pay attention to foot placement.",
@@ -62,7 +62,11 @@ fun ProfileScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri -> profileImageUri = uri }
+    ) { uri -> 
+        if (uri != null) {
+            viewModel.updateProfileImageUri(uri)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -72,20 +76,11 @@ fun ProfileScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Logo Header (Matching TrackerScreen style)
-        Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(
-                text = "CLIMBETTER",
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .clickable { onHome() },
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.titleLarge.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 2.sp,
-                    color = Color(0xFF4DB6AC)
-                )
-            )
-        }
+        ClimbetterHeader(
+            onHome = onHome,
+            isDarkMode = isDarkMode,
+            onToggleDarkMode = { viewModel.toggleDarkMode() }
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -125,7 +120,7 @@ fun ProfileScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
         if (isEditingName) {
             TextField(
                 value = name,
-                onValueChange = { name = it },
+                onValueChange = { viewModel.updateProfileName(it) },
                 modifier = Modifier.padding(horizontal = 32.dp),
                 textStyle = MaterialTheme.typography.headlineMedium.copy(
                     color = Color(0xFF00BCD4),
@@ -139,6 +134,8 @@ fun ProfileScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
                     unfocusedIndicatorColor = Color.LightGray
                 ),
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { isEditingName = false }),
                 trailingIcon = {
                     IconButton(onClick = { isEditingName = false }) {
                         Icon(imageVector = Icons.Default.CheckCircle, contentDescription = "Save", tint = Color(0xFF00BCD4))
@@ -176,7 +173,7 @@ fun ProfileScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
                     label = "Height",
                     value = height,
                     unit = "cm",
-                    onValueSelected = { height = it }
+                    onValueSelected = { viewModel.updateProfileHeight(it) }
                 )
 
                 // Weight Input
@@ -184,13 +181,13 @@ fun ProfileScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
                     label = "Weight",
                     value = weight,
                     unit = "kg",
-                    onValueSelected = { weight = it }
+                    onValueSelected = { viewModel.updateProfileWeight(it) }
                 )
                 
                 // Grade Dropdown
                 GradeDropdown(
                     selectedGrade = selectedGrade,
-                    onGradeSelected = { selectedGrade = it },
+                    onGradeSelected = { viewModel.updateProfileGrade(it) },
                     darkTheme = effectivelyDark
                 )
             }
@@ -256,8 +253,8 @@ fun UnitNumberInput(
                 filtered.toIntOrNull()?.let { onValueSelected(it) }
             },
             modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp)),
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = Color.White,
                 unfocusedContainerColor = Color.White,
@@ -270,7 +267,8 @@ fun UnitNumberInput(
             suffix = {
                 Text(text = unit, color = Color.Gray)
             },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { /* Done action if needed */ }),
             singleLine = true
         )
     }
@@ -299,8 +297,8 @@ fun GradeDropdown(selectedGrade: ClimbGrade, onGradeSelected: (ClimbGrade) -> Un
                 readOnly = true,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .menuAnchor()
-                    .clip(RoundedCornerShape(24.dp)),
+                    .menuAnchor(),
+                shape = RoundedCornerShape(24.dp),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.White,
                     unfocusedContainerColor = Color.White,

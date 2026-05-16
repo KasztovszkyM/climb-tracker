@@ -22,11 +22,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.graphics.graphicsLayer
@@ -34,6 +32,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.zIndex
+import bme.prompteng.android.climbtracker.ui.components.ClimbetterHeader
 import bme.prompteng.android.climbtracker.model.Exercise
 import bme.prompteng.android.climbtracker.model.TrainingFocus
 import bme.prompteng.android.climbtracker.model.WorkoutCategory
@@ -43,35 +42,16 @@ import bme.prompteng.android.climbtracker.model.WorkoutPlan
 fun TrainingScreen(viewModel: ClimbViewModel, onBack: () -> Unit, onHome: () -> Unit) {
     val currentState by viewModel.trainingState.collectAsState()
     val isLoading by viewModel.isLoadingPlan.collectAsState()
+    val isDarkMode by viewModel.isDarkMode.collectAsState()
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Logo Header (Matching TrackerScreen/ProfileScreen style)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                IconButton(
-                    onClick = onBack,
-                    modifier = Modifier.align(Alignment.CenterStart)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary)
-                }
-                
-                Text(
-                    text = "CLIMBETTER",
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .clickable { onHome() },
-                    textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp,
-                        color = Color(0xFF4DB6AC)
-                    )
-                )
-            }
+            ClimbetterHeader(
+                onHome = onHome,
+                isDarkMode = isDarkMode,
+                onToggleDarkMode = { viewModel.toggleDarkMode() }
+            )
 
             AnimatedContent(
                 targetState = currentState,
@@ -110,7 +90,8 @@ fun TrainingScreen(viewModel: ClimbViewModel, onBack: () -> Unit, onHome: () -> 
                         WorkoutExecutionContent(
                             viewModel = viewModel,
                             isLoading = isLoading,
-                            onFinish = { viewModel.resetWorkout() }
+                            onFinish = { viewModel.resetWorkout() },
+                            onBack = { viewModel.resetWorkout() }
                         )
                     }
                 }
@@ -221,7 +202,8 @@ fun FocusButton(focus: TrainingFocus, onClick: () -> Unit) {
 fun WorkoutExecutionContent(
     viewModel: ClimbViewModel,
     isLoading: Boolean,
-    onFinish: () -> Unit
+    onFinish: () -> Unit,
+    onBack: () -> Unit
 ) {
     val workoutState = viewModel.currentWorkout.collectAsState()
     val workout: WorkoutPlan? = workoutState.value
@@ -247,6 +229,12 @@ fun WorkoutExecutionContent(
                     color = MaterialTheme.colorScheme.primary
                 )
             )
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp)
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.primary)
+            }
         }
 
         if (isLoading) {

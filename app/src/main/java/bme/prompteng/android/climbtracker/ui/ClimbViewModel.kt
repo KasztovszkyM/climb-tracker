@@ -1,6 +1,8 @@
 package bme.prompteng.android.climbtracker.ui
 
 import android.app.Application
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import bme.prompteng.android.climbtracker.BuildConfig
@@ -11,12 +13,16 @@ import bme.prompteng.android.climbtracker.network.Content
 import bme.prompteng.android.climbtracker.network.GeminiApi
 import bme.prompteng.android.climbtracker.network.GeminiRequest
 import bme.prompteng.android.climbtracker.network.Part
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 import java.util.Calendar
 import kotlin.math.abs
+import androidx.core.content.edit
+import androidx.core.net.toUri
 
 sealed class TrainingState {
     object CategorySelection : TrainingState()
@@ -25,11 +31,17 @@ sealed class TrainingState {
 }
 
 class ClimbViewModel(application: Application) : AndroidViewModel(application) {
-    private val climbDao = AppDatabase.getDatabase(application).climbDao()
+    private val db = AppDatabase.getDatabase(application)
+    private val climbDao = db.climbDao()
+    private val workoutDao = db.workoutDao()
     private val geminiApi = GeminiApi.create()
     private val context = application.applicationContext
 
+    private val gson = com.google.gson.Gson()
+
     private val apiKey = BuildConfig.GEMINI_API_KEY_TRAINING
+
+    private val prefs = application.getSharedPreferences("climb_prefs", Context.MODE_PRIVATE)
 
     private val _filterDate = MutableStateFlow<Long?>(null)
     val filterDate: StateFlow<Long?> = _filterDate.asStateFlow()
@@ -44,12 +56,114 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleDarkMode() {
         val current = _isDarkMode.value ?: false
-        _isDarkMode.value = !current
+        val newMode = !current
+        _isDarkMode.value = newMode
+        prefs.edit { putBoolean("dark_mode", newMode) }
+    }
+
+    // Profile fields
+    private val _profileName = MutableStateFlow(prefs.getString("profile_name", "Profile") ?: "Profile")
+    val profileName = _profileName.asStateFlow()
+
+    private val _profileHeight = MutableStateFlow(prefs.getInt("profile_height", 160))
+    val profileHeight = _profileHeight.asStateFlow()
+
+    private val _profileWeight = MutableStateFlow(prefs.getInt("profile_weight", 55))
+    val profileWeight = _profileWeight.asStateFlow()
+
+    private val _profileGrade = MutableStateFlow(
+        ClimbGrade.entries.find { it.name == prefs.getString("profile_grade", ClimbGrade.WHITE.name) } ?: ClimbGrade.WHITE
+    )
+    val profileGrade = _profileGrade.asStateFlow()
+
+    private val _profileImageUri = MutableStateFlow<Uri?>(
+        prefs.getString("profile_image_uri", null)?.toUri()
+    )
+    val profileImageUri = _profileImageUri.asStateFlow()
+
+    fun updateProfileName(name: String) {
+        _profileName.value = name
+        prefs.edit { putString("profile_name", name) }
+    }
+
+    fun updateProfileHeight(height: Int) {
+        _profileHeight.value = height
+        prefs.edit { putInt("profile_height", height) }
+    }
+
+    fun updateProfileWeight(weight: Int) {
+        _profileWeight.value = weight
+        prefs.edit { putInt("profile_weight", weight) }
+    }
+
+    fun updateProfileGrade(grade: ClimbGrade) {
+        _profileGrade.value = grade
+        prefs.edit { putString("profile_grade", grade.name) }
+    }
+
+    fun updateProfileImageUri(uri: Uri?) {
+        if (uri == null) {
+            _profileImageUri.value = null
+            prefs.edit { remove("profile_image_uri") }
+            return
+        }
+
+        // Copy to internal storage for persistence
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val file = File(context.filesDir, "profile_image.jpg")
+                inputStream?.use { input ->
+                    file.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                val internalUri = Uri.fromFile(file)
+                _profileImageUri.value = internalUri
+                prefs.edit { putString("profile_image_uri", internalUri.toString()) }
+            } catch (e: Exception) {
+                _profileImageUri.value = uri
+                prefs.edit { putString("profile_image_uri", uri.toString()) }
+            }
+        }
     }
 
     init {
         loadQuotes()
         refreshQuote()
+        _isDarkMode.value = if (prefs.contains("dark_mode")) prefs.getBoolean("dark_mode", false) else null
+
+        viewModelScope.launch {
+            workoutDao.getCurrentWorkout().collect { entity ->
+                if (entity != null && _currentWorkout.value == null) {
+                    val plan = WorkoutPlan(
+                        id = entity.id,
+                        title = entity.title,
+                        category = entity.category,
+                        focus = entity.focus,
+                        exercises = entity.exercises
+                    )
+                    _currentWorkout.value = plan
+                    _trainingState.value = TrainingState.WorkoutExecution(plan.category, plan.focus)
+                }
+            }
+        }
+    }
+
+    private suspend fun persistWorkout(plan: WorkoutPlan?) {
+        if (plan == null) {
+            workoutDao.clearWorkout()
+        } else {
+            workoutDao.insertWorkout(
+                bme.prompteng.android.climbtracker.data.WorkoutPlanEntity(
+                    id = plan.id,
+                    title = plan.title,
+                    category = plan.category,
+                    focus = plan.focus,
+                    exercises = plan.exercises
+                )
+            )
+        }
     }
 
     private fun loadQuotes() {
@@ -144,18 +258,22 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startManualWorkout(category: WorkoutCategory, focus: TrainingFocus? = null) {
         lastRequestedState = category to focus
-        _currentWorkout.value = WorkoutPlan(
+        val plan = WorkoutPlan(
             title = focus?.label ?: category.name.lowercase().replaceFirstChar { it.uppercase() },
             category = category,
             exercises = emptyList()
         )
+        _currentWorkout.value = plan
         _trainingState.value = TrainingState.WorkoutExecution(category, focus)
+        viewModelScope.launch { persistWorkout(plan) }
     }
 
     fun addExercise(exercise: Exercise) {
         val current = _currentWorkout.value ?: return
         val updated = current.exercises + exercise.copy(id = java.util.UUID.randomUUID().toString())
-        _currentWorkout.value = current.copy(exercises = updated)
+        val newPlan = current.copy(exercises = updated)
+        _currentWorkout.value = newPlan
+        viewModelScope.launch { persistWorkout(newPlan) }
     }
 
     fun generateWorkout(category: WorkoutCategory, focus: TrainingFocus? = null) {
@@ -254,26 +372,32 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
                     throw Exception("Parsed exercise list is empty")
                 }
 
-                _currentWorkout.value = WorkoutPlan(
+                val plan = WorkoutPlan(
                     title = focus?.label
                         ?: category.name.lowercase()
                             .replaceFirstChar { it.uppercase() },
                     category = category,
+                    focus = focus,
                     exercises = exercises
                 )
+                _currentWorkout.value = plan
                 _trainingState.value = TrainingState.WorkoutExecution(category, focus)
+                persistWorkout(plan)
             } catch (e: Exception) {
                 android.util.Log.e("ClimbViewModel", "Error generating workout, using fallback", e)
                 
                 // Use ExerciseLibrary as fallback when API fails
                 val fallbackExercises = ExerciseLibrary[category]?.take(5) ?: emptyList()
 
-                _currentWorkout.value = WorkoutPlan(
+                val plan = WorkoutPlan(
                     title = "${category.name.lowercase().replaceFirstChar { it.uppercase() }} (Offline Mode)",
                     category = category,
+                    focus = focus,
                     exercises = fallbackExercises.map { it.copy(id = java.util.UUID.randomUUID().toString()) }
                 )
+                _currentWorkout.value = plan
                 _trainingState.value = TrainingState.WorkoutExecution(category, focus)
+                persistWorkout(plan)
             } finally {
                 _isLoadingPlan.value = false
             }
@@ -284,6 +408,7 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
         _currentWorkout.value = null
         lastRequestedState = null
         _trainingState.value = TrainingState.CategorySelection
+        viewModelScope.launch { persistWorkout(null) }
     }
 
     fun toggleExerciseCompletion(exerciseId: String) {
@@ -291,13 +416,17 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
         val updatedExercises = current.exercises.map {
             if (it.id == exerciseId) it.copy(isCompleted = !it.isCompleted) else it
         }
-        _currentWorkout.value = current.copy(exercises = updatedExercises)
+        val newPlan = current.copy(exercises = updatedExercises)
+        _currentWorkout.value = newPlan
+        viewModelScope.launch { persistWorkout(newPlan) }
     }
 
     fun removeExercise(exerciseId: String) {
         val current = _currentWorkout.value ?: return
         val updatedExercises = current.exercises.filter { it.id != exerciseId }
-        _currentWorkout.value = current.copy(exercises = updatedExercises)
+        val newPlan = current.copy(exercises = updatedExercises)
+        _currentWorkout.value = newPlan
+        viewModelScope.launch { persistWorkout(newPlan) }
     }
 
     fun moveExercise(fromIndex: Int, toIndex: Int) {
@@ -307,7 +436,9 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
         if (fromIndex in exercises.indices && toIndex in exercises.indices) {
             val item = exercises.removeAt(fromIndex)
             exercises.add(toIndex, item)
-            _currentWorkout.value = current.copy(exercises = exercises)
+            val newPlan = current.copy(exercises = exercises)
+            _currentWorkout.value = newPlan
+            viewModelScope.launch { persistWorkout(newPlan) }
         }
     }
 

@@ -30,10 +30,8 @@ import java.text.SimpleDateFormat
 import java.util.*
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.sp
 
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.LightMode
+import bme.prompteng.android.climbtracker.ui.components.ClimbetterHeader
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,29 +97,11 @@ fun TrackerScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Header standard: Box with 16dp padding
-                Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                    Text(
-                        text = "CLIMBETTER",
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .clickable { onHome() },
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 2.sp,
-                            color = Color(0xFF4DB6AC)
-                        )
-                    )
-                    IconButton(
-                        onClick = { viewModel.toggleDarkMode() },
-                        modifier = Modifier.align(Alignment.CenterEnd)
-                    ) {
-                        Icon(
-                            imageVector = if (isDarkMode == true) Icons.Default.LightMode else Icons.Default.DarkMode,
-                            contentDescription = "Toggle Dark Mode"
-                        )
-                    }
-                }
+                ClimbetterHeader(
+                    onHome = onHome,
+                    isDarkMode = isDarkMode,
+                    onToggleDarkMode = { viewModel.toggleDarkMode() }
+                )
                 
                 // Logging Content
                 Column(

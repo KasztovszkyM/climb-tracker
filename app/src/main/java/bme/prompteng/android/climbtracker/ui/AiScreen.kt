@@ -2,11 +2,8 @@ package bme.prompteng.android.climbtracker.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
-import bme.prompteng.android.climbtracker.ui.utils.copyUriToFile
-import android.content.Context
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -30,18 +27,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.sp
+import bme.prompteng.android.climbtracker.ui.components.ClimbetterHeader
 import bme.prompteng.android.climbtracker.model.ClimbingHold
 import bme.prompteng.android.climbtracker.ui.beta.BetaGeneratorViewModel
-import bme.prompteng.android.climbtracker.ui.beta.BetaGeneratorViewModelFactory
 import bme.prompteng.android.climbtracker.ui.beta.BetaUiState
-import java.io.File
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -50,13 +43,15 @@ import androidx.compose.ui.text.font.FontWeight
 import android.net.Uri
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Send
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
-import java.io.FileOutputStream
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 // --- 1. Chat Message Data Model ---
@@ -75,147 +70,154 @@ data class ChatMessage(
 @Composable
 fun AiScreen(
     viewModel: BetaGeneratorViewModel = viewModel(factory = BetaGeneratorViewModel.Factory),
+    climbViewModel: ClimbViewModel,
     onHome: () -> Unit
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+    val isDarkMode by climbViewModel.isDarkMode.collectAsState()
+    val chatMessages by viewModel.currentMessages.collectAsState()
+    val conversations by viewModel.conversations.collectAsState()
+    val currentConversationId by viewModel.currentConversationId.collectAsState()
 
-    var chatMessages by remember { mutableStateOf(listOf<ChatMessage>()) }
     var inputText by remember { mutableStateOf("") }
-
     var attachedImageUri by remember { mutableStateOf<Uri?>(null) }
-    var currentlyProcessedUri by remember { mutableStateOf<Uri?>(null) }
+
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
     val pickMediaLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            // Just attach the image, DO NOT send yet!
             attachedImageUri = uri
         }
     }
 
     LaunchedEffect(uiState) {
-        when (val state = uiState) {
-            is BetaUiState.Success -> {
-                // Add the drawn route as a permanent bot message
-                chatMessages = chatMessages + ChatMessage(
-                    isUser = false,
-                    isRouteBeta = true,
-                    imageUri = currentlyProcessedUri,
-                    holds = state.response.holds,
-                    imageAspectRatio = state.response.imageAspectRatio,
-                    betaDescription = state.response.description
-                )
-                viewModel.resetState() // Now it's safe to reset
-            }
-            is BetaUiState.Error -> {
-                // Add the error as a permanent text message so you can read it
-                chatMessages = chatMessages + ChatMessage(
-                    isUser = false,
-                    text = "System message: ${state.message}"
-                )
-                viewModel.resetState() // Now it's safe to reset
-            }
-            else -> {}
+        if (uiState is BetaUiState.Success || uiState is BetaUiState.Error) {
+            viewModel.resetState()
         }
     }
 
-    Scaffold(
-        bottomBar = {
-            // Pass the attached image state to the input bar
-            ChatInputBar(
-                inputText = inputText,
-                attachedImageUri = attachedImageUri,
-                onTextChange = { inputText = it },
-                onAddClick = {
-                    pickMediaLauncher.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-                    )
-                },
-                onRemoveAttachment = { attachedImageUri = null },
-                onSendClick = {
-                    // Send only if there is text or an attached image
-                    if (inputText.isNotBlank() || attachedImageUri != null) {
-                        chatMessages = chatMessages + ChatMessage(
-                            isUser = true,
-                            text = inputText.takeIf { it.isNotBlank() },
-                            imageUri = attachedImageUri
-                        )
-
-                        // If an image is attached, trigger the AI generation
-                        attachedImageUri?.let { uri ->
-                            currentlyProcessedUri = uri
-
-                            // CRITICAL FIX: Pass the inputText to the ViewModel!
-                            viewModel.generateBeta(context, uri, inputText)
-                        }
-
-                        // Clear input states
-                        inputText = ""
-                        attachedImageUri = null
-                    }
-                }
-            )
-        }
-    ) { paddingValues ->
-        Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
-            // Logo Header (Exactly matching TrackerScreen style)
-            Surface(
-                color = MaterialTheme.colorScheme.background,
-                tonalElevation = 2.dp
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-                        Text(
-                            text = "CLIMBETTER",
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .clickable { onHome() },
-                            textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 2.sp,
-                                color = Color(0xFF4DB6AC)
-                            )
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    "Conversations",
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.titleLarge
+                )
+                NavigationDrawerItem(
+                    label = { Text("New Chat") },
+                    selected = currentConversationId == null,
+                    onClick = {
+                        viewModel.startNewConversation()
+                        scope.launch { drawerState.close() }
+                    },
+                    icon = { Icon(Icons.Rounded.Add, contentDescription = null) },
+                    modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+                )
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(conversations) { conversation ->
+                        NavigationDrawerItem(
+                            label = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        conversation.title,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1
+                                    )
+                                    IconButton(onClick = { viewModel.deleteConversation(conversation.id) }) {
+                                        Icon(
+                                            Icons.Rounded.Delete,
+                                            contentDescription = "Delete",
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            },
+                            selected = conversation.id == currentConversationId,
+                            onClick = {
+                                viewModel.selectConversation(conversation.id)
+                                scope.launch { drawerState.close() }
+                            },
+                            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
                         )
                     }
-                    // AI Subtitle
-                    Text(
-                        text = "AI ROUTE SETTER",
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 2.sp,
-                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-                        ),
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
                 }
             }
-
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-                contentPadding = PaddingValues(vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                // 3. Render the messages properly
-                items(chatMessages) { message ->
-                    if (message.isRouteBeta) {
-                        // Átadjuk a képarányt és a leírást az üzenetből!
-                        BotResultBubble(
-                            imageUri = message.imageUri, 
-                            holds = message.holds, 
-                            imageAspectRatio = message.imageAspectRatio,
-                            description = message.betaDescription
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                ClimbetterHeader(
+                    onHome = onHome,
+                    isDarkMode = isDarkMode,
+                    onToggleDarkMode = { climbViewModel.toggleDarkMode() },
+                    onHistory = { scope.launch { drawerState.open() } }
+                )
+            },
+            bottomBar = {
+                ChatInputBar(
+                    inputText = inputText,
+                    attachedImageUri = attachedImageUri,
+                    onTextChange = { inputText = it },
+                    onAddClick = {
+                        pickMediaLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
                         )
-                    } else {
-                        ChatBubble(message = message)
+                    },
+                    onRemoveAttachment = { attachedImageUri = null },
+                    onSendClick = {
+                        if (inputText.isNotBlank() || attachedImageUri != null) {
+                            attachedImageUri?.let { uri ->
+                                viewModel.generateBeta(
+                                    context,
+                                    uri,
+                                    inputText
+                                )
+                            } ?: run {
+                                // If text only, we might want to support it later, 
+                                // but current generateBeta requires an image.
+                                // For now, let's keep it consistent with current functionality.
+                            }
+                            inputText = ""
+                            attachedImageUri = null
+                        }
                     }
-                }
+                )
+            }
+        ) { paddingValues ->
+            Column(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                    contentPadding = PaddingValues(vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(chatMessages, key = { it.id }) { message ->
+                        if (message.isRouteBeta) {
+                            BotResultBubble(
+                                imageUri = message.imageUri,
+                                holds = message.holds,
+                                imageAspectRatio = message.imageAspectRatio,
+                                description = message.betaDescription
+                            )
+                        } else {
+                            ChatBubble(message = message)
+                        }
+                    }
 
-                // 4. Render the Loading Indicator at the bottom ONLY when loading
-                if (uiState is BetaUiState.Loading) {
-                    item { AiTypingIndicator() }
+                    if (uiState is BetaUiState.Loading) {
+                        item { AiTypingIndicator() }
+                    }
                 }
             }
         }
@@ -223,7 +225,6 @@ fun AiScreen(
 }
 
 // --- UI Components ---
-
 @Composable
 fun ChatInputBar(
     inputText: String,
@@ -296,7 +297,7 @@ fun ChatInputBar(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 IconButton(onClick = onSendClick) {
-                    Icon(Icons.Rounded.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = "Send", tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -464,20 +465,20 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawArrowHead(
     end: androidx.compose.ui.geometry.Offset,
     color: Color
 ) {
-    val angle = java.lang.Math.atan2((end.y - start.y).toDouble(), (end.x - start.x).toDouble())
+    val angle = Math.atan2((end.y - start.y).toDouble(), (end.x - start.x).toDouble())
     val arrowLength = 40f
-    val arrowAngle = java.lang.Math.PI / 6 // 30 degrees
+    val arrowAngle = Math.PI / 6 // 30 degrees
 
     val path = Path().apply {
         moveTo(end.x, end.y)
         lineTo(
-            (end.x - arrowLength * java.lang.Math.cos(angle - arrowAngle)).toFloat(),
-            (end.y - arrowLength * java.lang.Math.sin(angle - arrowAngle)).toFloat()
+            (end.x - arrowLength * Math.cos(angle - arrowAngle)).toFloat(),
+            (end.y - arrowLength * Math.sin(angle - arrowAngle)).toFloat()
         )
         moveTo(end.x, end.y)
         lineTo(
-            (end.x - arrowLength * java.lang.Math.cos(angle + arrowAngle)).toFloat(),
-            (end.y - arrowLength * java.lang.Math.sin(angle + arrowAngle)).toFloat()
+            (end.x - arrowLength * Math.cos(angle + arrowAngle)).toFloat(),
+            (end.y - arrowLength * Math.sin(angle + arrowAngle)).toFloat()
         )
     }
 
@@ -506,18 +507,3 @@ fun AiTypingIndicator() {
         }
     }
 }
-
-// Utility function to copy URI to File (From previous implementation)
-/*
-fun copyUriToFile(context: Context, uri: Uri): File {
-    val mimeType = context.contentResolver.getType(uri)
-    val extension = if (mimeType?.startsWith("video/") == true) ".mp4" else ".jpg"
-    val tempFile = File(context.cacheDir, "gallery_media_${System.currentTimeMillis()}$extension")
-    context.contentResolver.openInputStream(uri)?.use { inputStream ->
-        FileOutputStream(tempFile).use { outputStream ->
-            inputStream.copyTo(outputStream)
-        }
-    }
-    return tempFile
-}
-*/

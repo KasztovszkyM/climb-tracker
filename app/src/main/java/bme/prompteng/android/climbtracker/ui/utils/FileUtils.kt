@@ -27,3 +27,25 @@ fun copyUriToFile(context: Context, uri: Uri): File {
 
     return tempFile
 }
+
+fun persistUriToInternalStorage(context: Context, uri: Uri): File {
+    val mimeType = context.contentResolver.getType(uri)
+    val extension = if (mimeType?.startsWith("video/") == true) ".mp4" else ".jpg"
+    
+    val directory = File(context.filesDir, "chat_images")
+    if (!directory.exists()) directory.mkdirs()
+
+    val file = File(directory, "chat_media_${System.currentTimeMillis()}$extension")
+
+    try {
+        context.contentResolver.openInputStream(uri)?.use { inputStream ->
+            FileOutputStream(file).use { outputStream ->
+                inputStream.copyTo(outputStream)
+            }
+        } ?: throw Exception("Failed to open input stream for Uri: $uri")
+    } catch (e: Exception) {
+        throw Exception("Error persisting Uri to internal storage: ${e.message}")
+    }
+    
+    return file
+}

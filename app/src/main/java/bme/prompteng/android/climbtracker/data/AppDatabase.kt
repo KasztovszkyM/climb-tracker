@@ -5,9 +5,14 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [ClimbEntity::class], version = 2, exportSchema = false)
+import androidx.room.TypeConverters
+
+@Database(entities = [ClimbEntity::class, ChatConversationEntity::class, ChatMessageEntity::class, WorkoutPlanEntity::class], version = 6, exportSchema = false)
+@TypeConverters(WorkoutConverters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun climbDao(): ClimbDao
+    abstract fun chatDao(): ChatDao
+    abstract fun workoutDao(): WorkoutDao
 
     companion object {
         @Volatile

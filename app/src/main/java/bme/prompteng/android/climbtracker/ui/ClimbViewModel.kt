@@ -183,7 +183,17 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    val climbs: StateFlow<List<ClimbEntity>> = climbDao.getAllClimbs()
+    val allClimbs: StateFlow<List<ClimbEntity>> = climbDao.getAllClimbs()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val totalAverageGrade: StateFlow<Float> = allClimbs
+        .map { list ->
+            if (list.isEmpty()) 0f
+            else list.map { it.gradeValue }.average().toFloat()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
+
+    val climbs: StateFlow<List<ClimbEntity>> = allClimbs
         .combine(_filterDate) { list, date ->
             if (date == null) list
             else {
@@ -274,6 +284,16 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
         val newPlan = current.copy(exercises = updated)
         _currentWorkout.value = newPlan
         viewModelScope.launch { persistWorkout(newPlan) }
+    }
+
+    fun undoLastExercise() {
+        val current = _currentWorkout.value ?: return
+        if (current.exercises.isNotEmpty()) {
+            val updated = current.exercises.dropLast(1)
+            val newPlan = current.copy(exercises = updated)
+            _currentWorkout.value = newPlan
+            viewModelScope.launch { persistWorkout(newPlan) }
+        }
     }
 
     fun generateWorkout(category: WorkoutCategory, focus: TrainingFocus? = null) {

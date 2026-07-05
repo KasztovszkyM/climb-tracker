@@ -1,5 +1,6 @@
 package bme.prompteng.android.climbtracker.ui
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -11,6 +12,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -30,6 +32,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.zIndex
 import bme.prompteng.android.climbtracker.ui.components.ClimbetterHeader
@@ -209,6 +212,7 @@ fun WorkoutExecutionContent(
     val workout: WorkoutPlan? = workoutState.value
     val exercises: List<Exercise> = workout?.exercises ?: emptyList()
     var showExercisePicker by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     val trainingState = viewModel.trainingState.collectAsState()
     val currentCategory = (trainingState.value as? TrainingState.WorkoutExecution)?.category ?: WorkoutCategory.WARMUP
@@ -358,13 +362,32 @@ fun WorkoutExecutionContent(
                     }
                 }
                 item {
-                    TextButton(
-                        onClick = { showExercisePicker = true },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Add More Exercises", color = MaterialTheme.colorScheme.primary)
+                        TextButton(
+                            onClick = { showExercisePicker = true },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Add More", color = MaterialTheme.colorScheme.primary)
+                        }
+                        
+                        if (exercises.isNotEmpty()) {
+                            TextButton(
+                                onClick = { 
+                                    viewModel.undoLastExercise()
+                                    Toast.makeText(context, "Last exercise removed", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Undo", color = MaterialTheme.colorScheme.secondary)
+                            }
+                        }
                     }
                 }
             }
@@ -420,6 +443,7 @@ fun WorkoutExecutionContent(
             onDismiss = { showExercisePicker = false },
             onExerciseSelected = { exercise ->
                 viewModel.addExercise(exercise)
+                Toast.makeText(context, "Added: ${exercise.name}", Toast.LENGTH_SHORT).show()
             }
         )
     }

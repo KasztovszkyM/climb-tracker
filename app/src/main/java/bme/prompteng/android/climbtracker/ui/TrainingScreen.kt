@@ -1,7 +1,7 @@
 package bme.prompteng.android.climbtracker.ui
 
 import android.widget.Toast
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -32,9 +32,27 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import kotlinx.coroutines.delay
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.customui.DefaultPlayerUiController
 import bme.prompteng.android.climbtracker.ui.components.ClimbetterHeader
 import bme.prompteng.android.climbtracker.model.Exercise
 import bme.prompteng.android.climbtracker.model.TrainingFocus
@@ -46,6 +64,7 @@ fun TrainingScreen(viewModel: ClimbViewModel, onBack: () -> Unit, onHome: () -> 
     val currentState by viewModel.trainingState.collectAsState()
     val isLoading by viewModel.isLoadingPlan.collectAsState()
     val isDarkMode by viewModel.isDarkMode.collectAsState()
+    var videoIdToPlay by remember { mutableStateOf<String?>(null) }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -56,12 +75,9 @@ fun TrainingScreen(viewModel: ClimbViewModel, onBack: () -> Unit, onHome: () -> 
                 onToggleDarkMode = { viewModel.toggleDarkMode() }
             )
 
-            AnimatedContent(
-                targetState = currentState,
-                label = "TrainingTransition",
-                modifier = Modifier.weight(1f)
-            ) { state ->
-                when (state) {
+            // Simple state-based content instead of AnimatedContent to debug LayoutNode crash
+            Box(modifier = Modifier.weight(1f)) {
+                when (val state = currentState) {
                     is TrainingState.CategorySelection -> {
                         CategorySelectionContent(
                             onCategorySelected = { category ->
@@ -93,11 +109,52 @@ fun TrainingScreen(viewModel: ClimbViewModel, onBack: () -> Unit, onHome: () -> 
                         WorkoutExecutionContent(
                             viewModel = viewModel,
                             isLoading = isLoading,
-                            onFinish = { viewModel.resetWorkout() },
-                            onBack = { viewModel.resetWorkout() }
+                            onStart = { viewModel.startGuidedWorkout() },
+                            onBack = { viewModel.resetWorkout() },
+                            onPlayVideo = { videoUrl ->
+                                videoIdToPlay = extractYoutubeVideoId(videoUrl)
+                            }
+                        )
+                    }
+                    is TrainingState.ActiveExercise -> {
+                        ActiveExerciseContent(
+                            viewModel = viewModel,
+                            exerciseIndex = state.exerciseIndex,
+                            onBack = {
+                                val workout = viewModel.currentWorkout.value
+                                if (workout != null) {
+                                    viewModel.setTrainingState(TrainingState.WorkoutExecution(workout.category, workout.focus))
+                                } else {
+                                    viewModel.setTrainingState(TrainingState.CategorySelection)
+                                }
+                            }
+                        )
+                    }
+                    is TrainingState.ExerciseDone -> {
+                        ExerciseDoneContent(
+                            viewModel = viewModel,
+                            exerciseIndex = state.exerciseIndex,
+                            onExit = {
+                                val workout = viewModel.currentWorkout.value
+                                if (workout != null) {
+                                    viewModel.setTrainingState(TrainingState.WorkoutExecution(workout.category, workout.focus))
+                                } else {
+                                    viewModel.setTrainingState(TrainingState.CategorySelection)
+                                }
+                            }
                         )
                     }
                 }
+            }
+        }
+
+        // Full-screen Video Overlay using Dialog to isolate layout lifecycle
+        videoIdToPlay?.let { videoId ->
+            key(videoId) {
+                VideoPlayerOverlay(
+                    videoId = videoId,
+                    onDismiss = { videoIdToPlay = null }
+                )
             }
         }
     }
@@ -205,13 +262,15 @@ fun FocusButton(focus: TrainingFocus, onClick: () -> Unit) {
 fun WorkoutExecutionContent(
     viewModel: ClimbViewModel,
     isLoading: Boolean,
-    onFinish: () -> Unit,
-    onBack: () -> Unit
+    onStart: () -> Unit,
+    onBack: () -> Unit,
+    onPlayVideo: (String) -> Unit
 ) {
     val workoutState = viewModel.currentWorkout.collectAsState()
     val workout: WorkoutPlan? = workoutState.value
     val exercises: List<Exercise> = workout?.exercises ?: emptyList()
     var showExercisePicker by remember { mutableStateOf(false) }
+    var expandedExerciseId by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
     val trainingState = viewModel.trainingState.collectAsState()
@@ -307,12 +366,11 @@ fun WorkoutExecutionContent(
                 item { Spacer(modifier = Modifier.height(8.dp)) }
                 itemsIndexed(items = exercises, key = { _, exercise -> exercise.id }) { index, exercise ->
                     val currentIndex by rememberUpdatedState(index)
+                    val isExpanded = expandedExerciseId == exercise.id
                     val isDragging = draggedItemIndex == currentIndex
-                    //val elevation by animateDpAsState(if (isDragging) 12.dp else 0.dp, label = "elevation")
                     
                     Box(
                         modifier = Modifier
-                            .animateItem()
                             .zIndex(if (isDragging) 1f else 0f)
                             .graphicsLayer {
                                 translationY = if (isDragging) draggingOffset else 0f
@@ -320,42 +378,50 @@ fun WorkoutExecutionContent(
                                 scaleY = if (isDragging) 1.05f else 1.0f
                                 alpha = if (isDragging) 0.9f else 1.0f
                             }
-                            .pointerInput(Unit) {
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = { _ ->
-                                        draggedItemIndex = currentIndex
-                                    },
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        draggingOffset += dragAmount.y
-                                        
-                                        // Estimate item height including spacing for smoother transitions
-                                        val itemHeight = with(density) { 90.dp.toPx() }
-                                        val threshold = itemHeight * 0.5f
-                                        
-                                        if (draggingOffset > threshold && currentIndex < exercises.size - 1) {
-                                            viewModel.moveExercise(currentIndex, currentIndex + 1)
-                                            draggedItemIndex = currentIndex + 1
-                                            draggingOffset -= itemHeight
-                                        } else if (draggingOffset < -threshold && currentIndex > 0) {
-                                            viewModel.moveExercise(currentIndex, currentIndex - 1)
-                                            draggedItemIndex = currentIndex - 1
-                                            draggingOffset += itemHeight
-                                        }
-                                    },
-                                    onDragEnd = {
-                                        draggedItemIndex = null
-                                        draggingOffset = 0f
-                                    },
-                                    onDragCancel = {
-                                        draggedItemIndex = null
-                                        draggingOffset = 0f
-                                    }
-                                )
+                    .pointerInput(exercise.id) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { _ ->
+                                // Collapse any expanded item for performance during drag
+                                expandedExerciseId = null
+                                draggedItemIndex = currentIndex
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                draggingOffset += dragAmount.y
+                                
+                                val itemHeight = with(density) { 90.dp.toPx() }
+                                val threshold = itemHeight * 0.5f
+                                
+                                if (draggingOffset > threshold && currentIndex < exercises.size - 1) {
+                                    viewModel.moveExercise(currentIndex, currentIndex + 1)
+                                    draggedItemIndex = currentIndex + 1
+                                    draggingOffset -= itemHeight
+                                } else if (draggingOffset < -threshold && currentIndex > 0) {
+                                    viewModel.moveExercise(currentIndex, currentIndex - 1)
+                                    draggedItemIndex = currentIndex - 1
+                                    draggingOffset += itemHeight
+                                }
+                            },
+                            onDragEnd = {
+                                draggedItemIndex = null
+                                draggingOffset = 0f
+                                viewModel.persistCurrentWorkout()
+                            },
+                            onDragCancel = {
+                                draggedItemIndex = null
+                                draggingOffset = 0f
+                                viewModel.persistCurrentWorkout()
                             }
+                        )
+                    }
                     ) {
                         ExerciseListItem(
                             exercise = exercise,
+                            isExpanded = isExpanded,
+                            onExpandToggle = {
+                                expandedExerciseId = if (isExpanded) null else exercise.id
+                            },
+                            onPlayVideo = onPlayVideo,
                             onToggle = { viewModel.toggleExerciseCompletion(exercise.id) },
                             onRemove = { viewModel.removeExercise(exercise.id) }
                         )
@@ -413,11 +479,13 @@ fun WorkoutExecutionContent(
                     Text("Regenerate AI", color = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
                 Button(
-                    onClick = onFinish,
+                    onClick = onStart,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                 ) {
-                    Text("Finish", color = MaterialTheme.colorScheme.onPrimary)
+                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Start Workout", color = MaterialTheme.colorScheme.onPrimary)
                 }
             }
         }
@@ -479,7 +547,22 @@ fun ExercisePickerDialog(
                         color = MaterialTheme.colorScheme.surfaceVariant
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
-                            Text(exercise.name, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = exercise.name,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (!exercise.videoUrl.isNullOrBlank()) {
+                                    Icon(
+                                        Icons.Default.VideoLibrary,
+                                        contentDescription = "Video available",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
                             val detail = buildString {
                                 exercise.durationSeconds?.let { append("${it}s ") }
                                 exercise.reps?.let { append(it) }
@@ -501,67 +584,499 @@ fun ExercisePickerDialog(
 @Composable
 fun ExerciseListItem(
     exercise: Exercise,
+    isExpanded: Boolean,
+    onExpandToggle: () -> Unit,
+    onPlayVideo: (String) -> Unit,
     onToggle: () -> Unit,
     onRemove: () -> Unit
 ) {
     Surface(
         modifier = Modifier
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .animateContentSize(),
         shape = RoundedCornerShape(12.dp),
         color = if (exercise.isCompleted) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
         border = if (exercise.isCompleted) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null
     ) {
-        Row(
-            modifier = Modifier
-                .padding(8.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Drag Handle Icon
-            Icon(
-                Icons.Default.DragHandle,
-                contentDescription = "Drag to reorder",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier.padding(horizontal = 8.dp)
-            )
-
-            IconButton(onClick = onToggle) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .padding(8.dp)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Drag Handle Icon
                 Icon(
-                    imageVector = if (exercise.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                    contentDescription = null,
-                    tint = if (exercise.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.size(32.dp)
+                    Icons.Default.DragHandle,
+                    contentDescription = "Drag to reorder",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.padding(horizontal = 8.dp)
                 )
+
+                IconButton(onClick = onToggle) {
+                    Icon(
+                        imageVector = if (exercise.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                        contentDescription = null,
+                        tint = if (exercise.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onExpandToggle() }
+                ) {
+                    Text(
+                        text = exercise.name,
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                        color = if (exercise.isCompleted) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    val detail = buildString {
+                        exercise.durationSeconds?.let { append("${it}s ") }
+                        exercise.reps?.let { append(it) }
+                    }
+                    if (detail.isNotBlank()) {
+                        Text(
+                            text = detail,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+
+                if (!exercise.videoUrl.isNullOrBlank() && !isExpanded) {
+                    Icon(
+                        Icons.Default.PlayCircle,
+                        contentDescription = "Has Video",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp).padding(end = 8.dp)
+                    )
+                }
+
+                IconButton(onClick = onRemove) {
+                    Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                }
             }
-            
-            Spacer(modifier = Modifier.width(8.dp))
-            
+
+            if (isExpanded) {
+                Column(
+                    modifier = Modifier
+                        .padding(start = 56.dp, end = 16.dp, bottom = 16.dp)
+                        .fillMaxWidth()
+                ) {
+                    exercise.instruction?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
+                    if (!exercise.videoUrl.isNullOrBlank()) {
+                        VideoThumbnail(
+                            videoId = extractYoutubeVideoId(exercise.videoUrl) ?: "",
+                            onPlayClick = { onPlayVideo(exercise.videoUrl) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun VideoPlayerOverlay(videoId: String, onDismiss: () -> Unit) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.9f))
+        ) {
             Column(
                 modifier = Modifier
-                    .weight(1f)
-                    .clickable { onToggle() }
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                Text(
-                    text = exercise.name,
-                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                    color = if (exercise.isCompleted) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                val detail = buildString {
-                    exercise.durationSeconds?.let { append("${it}s ") }
-                    exercise.reps?.let { append(it) }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f)
+                        .background(Color.Black)
+                ) {
+                    YoutubePlayerLibrary(
+                        videoId = videoId,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
-                if (detail.isNotBlank()) {
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White.copy(alpha = 0.2f),
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(28.dp),
+                    modifier = Modifier.height(56.dp).padding(horizontal = 24.dp)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Close Video", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun YoutubePlayerLibrary(videoId: String, modifier: Modifier = Modifier) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val cleanVideoId = videoId.trim()
+    val playerRef = remember { mutableStateOf<YouTubePlayer?>(null) }
+    val lastLoadedVideoId = remember { mutableStateOf("") }
+
+    AndroidView(
+        modifier = modifier,
+        factory = { context ->
+            YouTubePlayerView(context).apply {
+                enableAutomaticInitialization = false
+
+                val options = IFramePlayerOptions.Builder(context)
+                    .controls(0) // Hide YouTube Web UI entirely to remove clutter
+                    .fullscreen(0)
+                    .ivLoadPolicy(3)
+                    .rel(0)
+                    .modestBranding(1)
+                    .build()
+
+                val listener = object : AbstractYouTubePlayerListener() {
+                    override fun onReady(youTubePlayer: YouTubePlayer) {
+                        playerRef.value = youTubePlayer
+                        val defaultPlayerUiController = DefaultPlayerUiController(this@apply, youTubePlayer)
+                        defaultPlayerUiController.showVideoTitle(false)
+                        defaultPlayerUiController.showYouTubeButton(false)
+                        defaultPlayerUiController.showFullscreenButton(false)
+                        defaultPlayerUiController.showMenuButton(false)
+                        defaultPlayerUiController.showCurrentTime(true)
+                        defaultPlayerUiController.showDuration(true)
+
+                        this@apply.setCustomPlayerUi(defaultPlayerUiController.rootView)
+
+                        youTubePlayer.unMute()
+                        // Ensure we load the LATEST video ID even if it changed during init
+                        val latestId = lastLoadedVideoId.value.ifBlank { cleanVideoId }
+                        youTubePlayer.loadVideo(latestId, 0f)
+                        lastLoadedVideoId.value = latestId
+                    }
+
+                    override fun onError(youTubePlayer: YouTubePlayer, error: PlayerConstants.PlayerError) {
+                        android.util.Log.e("YoutubePlayer", "Internal Player Error for $cleanVideoId: $error")
+                    }
+                }
+
+                initialize(listener, options)
+                lifecycleOwner.lifecycle.addObserver(this)
+            }
+        },
+        update = { _ ->
+            // Handle video changes if the view is reused
+            val p = playerRef.value
+            if (p != null && lastLoadedVideoId.value != cleanVideoId) {
+                p.loadVideo(cleanVideoId, 0f)
+                lastLoadedVideoId.value = cleanVideoId
+            }
+        },
+        onRelease = { view ->
+            lifecycleOwner.lifecycle.removeObserver(view)
+            view.release()
+        }
+    )
+}
+
+@Composable
+fun ActiveExerciseContent(
+    viewModel: ClimbViewModel,
+    exerciseIndex: Int,
+    onBack: () -> Unit
+) {
+    val workout by viewModel.currentWorkout.collectAsState()
+    val exercise = workout?.exercises?.getOrNull(exerciseIndex) ?: return
+    var timeLeft by remember(exerciseIndex) { mutableStateOf(exercise.durationSeconds ?: 0) }
+    val isTimerRunning = timeLeft > 0
+
+    LaunchedEffect(exerciseIndex, isTimerRunning) {
+        if (isTimerRunning) {
+            while (timeLeft > 0) {
+                delay(1000L)
+                timeLeft--
+            }
+            viewModel.nextExercise(exerciseIndex)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+            Text(
+                text = "Exercise ${exerciseIndex + 1}/${workout?.exercises?.size}",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center
+            )
+            Spacer(modifier = Modifier.width(48.dp))
+        }
+
+        Text(
+            text = exercise.name,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(vertical = 16.dp)
+        )
+
+        // Video Section
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Black)
+        ) {
+            val videoId = extractYoutubeVideoId(exercise.videoUrl ?: "")
+            if (videoId != null) {
+                YoutubePlayerLibrary(videoId = videoId, modifier = Modifier.fillMaxSize())
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No Video Available", color = Color.White)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Timer/Reps Display
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (exercise.durationSeconds != null) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("TIME", style = MaterialTheme.typography.labelMedium)
                     Text(
-                        text = detail,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        text = String.format(java.util.Locale.US, "%02d:%02d", timeLeft / 60, timeLeft % 60),
+                        style = MaterialTheme.typography.displayMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }
             
-            IconButton(onClick = onRemove) {
-                Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+            if (!exercise.reps.isNullOrBlank()) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("REPS", style = MaterialTheme.typography.labelMedium)
+                    Text(
+                        text = exercise.reps,
+                        style = MaterialTheme.typography.displayMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        exercise.instruction?.let {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(16.dp),
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        // Controls
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            OutlinedButton(
+                onClick = { viewModel.skipExercise(exerciseIndex) },
+                modifier = Modifier.weight(1f).height(56.dp)
+            ) {
+                Text("Skip")
+            }
+            Button(
+                onClick = { viewModel.nextExercise(exerciseIndex) },
+                modifier = Modifier.weight(1f).height(56.dp)
+            ) {
+                Text("Done")
             }
         }
     }
+}
+
+@Composable
+fun ExerciseDoneContent(
+    viewModel: ClimbViewModel,
+    exerciseIndex: Int,
+    onExit: () -> Unit
+) {
+    val workout by viewModel.currentWorkout.collectAsState()
+    val nextExercise = workout?.exercises?.getOrNull(exerciseIndex + 1)
+    var timeLeft by remember { mutableStateOf(15) }
+    
+    LaunchedEffect(Unit) {
+        while (timeLeft > 0) {
+            delay(1000L)
+            timeLeft--
+        }
+        viewModel.startNextExercise(exerciseIndex + 1)
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            Icons.Default.CheckCircle,
+            contentDescription = null,
+            modifier = Modifier.size(80.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Text(
+            "Well done!",
+            style = MaterialTheme.typography.displaySmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        Text(
+            "Take a short breath.",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        if (nextExercise != null) {
+            Spacer(modifier = Modifier.height(32.dp))
+            Text("NEXT UP:", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
+            Text(
+                nextExercise.name,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
+        }
+
+        Spacer(modifier = Modifier.height(40.dp))
+
+        Text(
+            "Starting in",
+            style = MaterialTheme.typography.labelLarge
+        )
+        Text(
+            "${timeLeft}s",
+            style = MaterialTheme.typography.displayLarge,
+            fontWeight = FontWeight.Black
+        )
+
+        Spacer(modifier = Modifier.height(40.dp))
+
+        Button(
+            onClick = { viewModel.startNextExercise(exerciseIndex + 1) },
+            modifier = Modifier.fillMaxWidth().height(56.dp)
+        ) {
+            Text("Start Now")
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        TextButton(onClick = onExit) {
+            Text("Exit Workout", color = MaterialTheme.colorScheme.outline)
+        }
+    }
+}
+
+@Composable
+fun VideoThumbnail(videoId: String, onPlayClick: () -> Unit, modifier: Modifier = Modifier) {
+    val thumbnailUrl = "https://img.youtube.com/vi/$videoId/hqdefault.jpg"
+    
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(220.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable { onPlayClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        AsyncImage(
+            model = thumbnailUrl,
+            contentDescription = "Video Thumbnail",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+        
+        // Play Button Overlay
+        Surface(
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.6f),
+            modifier = Modifier.size(64.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play Video",
+                    tint = Color.White,
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+        }
+    }
+}
+
+
+fun extractYoutubeVideoId(url: String): String? {
+    val regex = Regex("(?:v=|(?:embed|shorts|youtu.be)/)([a-zA-Z0-9_-]{11})")
+    return regex.find(url)?.groupValues?.get(1)
 }

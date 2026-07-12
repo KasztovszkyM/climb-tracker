@@ -13,7 +13,11 @@ import bme.prompteng.android.climbtracker.network.Content
 import bme.prompteng.android.climbtracker.network.GeminiApi
 import bme.prompteng.android.climbtracker.network.GeminiRequest
 import bme.prompteng.android.climbtracker.network.Part
+import bme.prompteng.android.climbtracker.network.YouTubeApiService
+import bme.prompteng.android.climbtracker.network.YouTubeSearchResponse
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
@@ -28,6 +32,8 @@ sealed class TrainingState {
     object CategorySelection : TrainingState()
     object TrainingFocusSelection : TrainingState()
     data class WorkoutExecution(val category: WorkoutCategory, val focus: TrainingFocus? = null) : TrainingState()
+    data class ActiveExercise(val exerciseIndex: Int) : TrainingState()
+    data class ExerciseDone(val exerciseIndex: Int) : TrainingState()
 }
 
 class ClimbViewModel(application: Application) : AndroidViewModel(application) {
@@ -35,6 +41,7 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
     private val climbDao = db.climbDao()
     private val workoutDao = db.workoutDao()
     private val geminiApi = GeminiApi.create()
+    private val youtubeApi = YouTubeApiService.create()
     private val context = application.applicationContext
 
     private val gson = com.google.gson.Gson()
@@ -183,7 +190,17 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    val climbs: StateFlow<List<ClimbEntity>> = climbDao.getAllClimbs()
+    val allClimbs: StateFlow<List<ClimbEntity>> = climbDao.getAllClimbs()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val totalAverageGrade: StateFlow<Float> = allClimbs
+        .map { list ->
+            if (list.isEmpty()) 0f
+            else list.map { it.gradeValue }.average().toFloat()
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0f)
+
+    val climbs: StateFlow<List<ClimbEntity>> = allClimbs
         .combine(_filterDate) { list, date ->
             if (date == null) list
             else {
@@ -269,11 +286,50 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addExercise(exercise: Exercise) {
+        viewModelScope.launch {
+            val current = _currentWorkout.value ?: return@launch
+            
+            // Fetch video URL if it's missing
+            val exerciseWithUrl = if (exercise.videoUrl.isNullOrBlank()) {
+                exercise.copy(videoUrl = fetchVideoUrl(exercise.name))
+            } else {
+                exercise
+            }
+            
+            val updated = current.exercises + exerciseWithUrl.copy(id = java.util.UUID.randomUUID().toString())
+            val newPlan = current.copy(exercises = updated)
+            _currentWorkout.value = newPlan
+            persistWorkout(newPlan)
+        }
+    }
+
+    private suspend fun fetchVideoUrl(exerciseName: String): String? {
+        return try {
+            // Append strict intent keywords to ensure a clean, single-exercise focus
+            val searchQuery = "$exerciseName climbing exercise technique tutorial"
+            val response = youtubeApi.searchVideos(query = searchQuery)
+            if (response.isSuccessful) {
+                response.body()?.items?.firstOrNull()?.id?.videoId?.let {
+                    "https://www.youtube.com/watch?v=$it"
+                }
+            } else {
+                android.util.Log.e("ClimbViewModel", "YouTube API Error: ${response.code()}")
+                null
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ClimbViewModel", "YouTube Search failed for $exerciseName", e)
+            null
+        }
+    }
+
+    fun undoLastExercise() {
         val current = _currentWorkout.value ?: return
-        val updated = current.exercises + exercise.copy(id = java.util.UUID.randomUUID().toString())
-        val newPlan = current.copy(exercises = updated)
-        _currentWorkout.value = newPlan
-        viewModelScope.launch { persistWorkout(newPlan) }
+        if (current.exercises.isNotEmpty()) {
+            val updated = current.exercises.dropLast(1)
+            val newPlan = current.copy(exercises = updated)
+            _currentWorkout.value = newPlan
+            viewModelScope.launch { persistWorkout(newPlan) }
+        }
     }
 
     fun generateWorkout(category: WorkoutCategory, focus: TrainingFocus? = null) {
@@ -281,13 +337,41 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isLoadingPlan.value = true
             try {
+                val height = profileHeight.value
+                val weight = profileWeight.value
+                val profileGradeVal = profileGrade.value.value.toFloat()
                 val avg = averageGrade.value
-                val gradeName = ClimbGrade.entries.minByOrNull { abs(it.value - avg) }?.label ?: "Unknown"
+                
+                // Use profile grade if no climbs yet, otherwise average them for a realistic current level
+                val effectiveGrade = if (avg == 0f) profileGradeVal else (avg + profileGradeVal) / 2f
+                val gradeName = ClimbGrade.entries.minByOrNull { abs(it.value.toFloat() - effectiveGrade) }?.label ?: "Unknown"
+
+                val basePrompt = """
+                    You are an elite climbing coach. Generate a high-quality 5-step exercise sequence for:
+                    - Athlete Level: $gradeName (Skill Score: ${"%.1f".format(effectiveGrade)}/5.0)
+                    - Physical Profile: $height cm, $weight kg
+                    - Session Focus: ${if (category == WorkoutCategory.TRAIN) focus?.label ?: "general climbing" else category.name.lowercase()}
+                    
+                    Guidelines:
+                    1. Progression: The 5 exercises must follow a logical flow (e.g., specific warm-up -> main strength effort -> accessory/cool-down).
+                    2. Difficulty Scaling: 
+                       - For a $gradeName climber (${"%.1f".format(effectiveGrade)}/5.0), ensure intensity is challenging but safe.
+                       - Height ($height cm): If >180cm, focus on core tension, high-foot stability, and managing leverage. If <165cm, focus on explosive movement and high-reach techniques.
+                       - Weight ($weight kg): If >85kg, emphasize controlled movements to protect finger tendons and shoulders. If <65kg, focus on pure strength-to-weight ratio exercises.
+                    3. Coaching Cues: Instructions must be professional and actionable (e.g., 'Maintain active shoulders', 'Engage glutes', 'Precise foot placement').
+                    4. Realistic Metrics: 
+                       - Use 'DurationSeconds' as a raw number of SECONDS for timed holds or cardio (e.g., 60). Do not use minutes.
+                       - Use 'Reps' for strength movements (e.g., '10 reps', '3 sets of 5').
+                       - Scale metrics specifically for $gradeName level: if they are a beginner (White/Blue), keep reps manageable. If advanced (Red/Black), use high-intensity low-rep or long-duration metrics.
+                    
+                    Format: Name|DurationSeconds|Reps|Instruction
+                    (Use '-' for N/A. No headers, no markdown formatting, no intro/outro text. Just 5 lines.)
+                """.trimIndent()
 
                 val promptText = when (category) {
-                    WorkoutCategory.WARMUP -> "Generate a 5-step climbing warmup plan for a $gradeName level climber. Strictly format each line as: Name|DurationSeconds|Reps. Use '-' if duration or reps not applicable. Example: Jumping Jacks|60|-. No headers or tables."
-                    WorkoutCategory.STRETCH -> "Generate a 5-step post-climbing stretching plan for a $gradeName level climber. Strictly format each line as: Name|DurationSeconds|Reps. Use '-' if duration or reps not applicable. No headers or tables."
-                    WorkoutCategory.TRAIN -> "Generate a 5-step training plan focusing on ${focus?.label ?: "general climbing"} for a $gradeName level climber. Strictly format each line as: Name|DurationSeconds|Reps. Use '-' if duration or reps not applicable. No headers or tables."
+                    WorkoutCategory.WARMUP -> "Generate a climbing warmup plan. $basePrompt"
+                    WorkoutCategory.STRETCH -> "Generate a post-climbing stretching plan. $basePrompt"
+                    WorkoutCategory.TRAIN -> "Generate a targeted training plan. $basePrompt"
                 }
 
                 val request = GeminiRequest(
@@ -298,7 +382,7 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
                 val content = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: ""
                 android.util.Log.d("ClimbViewModel", "Gemini Response: $content")
 
-                val exercises = content.lines()
+                val baseExercises = content.lines()
                     .map { it.trim() }
                     .filter { it.isNotBlank() }
                     .let { lines ->
@@ -335,7 +419,9 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
                                 Exercise(
                                     name = cleanedName,
                                     durationSeconds = duration,
-                                    reps = parts.getOrNull(2)?.takeIf { it != "-" && it.isNotBlank() }
+                                    reps = parts.getOrNull(2)?.takeIf { it != "-" && it.isNotBlank() },
+                                    instruction = parts.getOrNull(3)?.takeIf { it != "-" && it.isNotBlank() },
+                                    videoUrl = null // Will fetch via YouTube API
                                 )
                             }
                         } else {
@@ -362,15 +448,24 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
                                 Exercise(
                                     name = displayName.ifEmpty { cleanedName },
                                     durationSeconds = duration,
-                                    reps = null
+                                    reps = null,
+                                    instruction = null,
+                                    videoUrl = null
                                 )
                             }
                         }
                     }
 
-                if (exercises.isEmpty()) {
+                if (baseExercises.isEmpty()) {
                     throw Exception("Parsed exercise list is empty")
                 }
+
+                // Fetch YouTube videos for each exercise in parallel
+                val exercises = baseExercises.map { exercise ->
+                    viewModelScope.async(Dispatchers.IO) {
+                        exercise.copy(videoUrl = fetchVideoUrl(exercise.name))
+                    }
+                }.awaitAll()
 
                 val plan = WorkoutPlan(
                     title = focus?.label
@@ -387,13 +482,23 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
                 android.util.Log.e("ClimbViewModel", "Error generating workout, using fallback", e)
                 
                 // Use ExerciseLibrary as fallback when API fails
-                val fallbackExercises = ExerciseLibrary[category]?.take(5) ?: emptyList()
+                val baseFallback = ExerciseLibrary[category]?.take(5) ?: emptyList()
+                
+                // Fetch videos even for fallback exercises
+                val fallbackExercises = baseFallback.map { exercise ->
+                    viewModelScope.async(Dispatchers.IO) {
+                        exercise.copy(
+                            id = java.util.UUID.randomUUID().toString(),
+                            videoUrl = fetchVideoUrl(exercise.name)
+                        )
+                    }
+                }.awaitAll()
 
                 val plan = WorkoutPlan(
                     title = "${category.name.lowercase().replaceFirstChar { it.uppercase() }} (Offline Mode)",
                     category = category,
                     focus = focus,
-                    exercises = fallbackExercises.map { it.copy(id = java.util.UUID.randomUUID().toString()) }
+                    exercises = fallbackExercises
                 )
                 _currentWorkout.value = plan
                 _trainingState.value = TrainingState.WorkoutExecution(category, focus)
@@ -411,10 +516,42 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { persistWorkout(null) }
     }
 
-    fun toggleExerciseCompletion(exerciseId: String) {
+    fun startGuidedWorkout() {
+        val workout = _currentWorkout.value ?: return
+        if (workout.exercises.isNotEmpty()) {
+            _trainingState.value = TrainingState.ActiveExercise(0)
+        }
+    }
+
+    fun nextExercise(currentIndex: Int) {
+        val workout = _currentWorkout.value ?: return
+        // Mark current as completed
+        toggleExerciseCompletion(workout.exercises[currentIndex].id, true)
+        
+        if (currentIndex < workout.exercises.size - 1) {
+            _trainingState.value = TrainingState.ExerciseDone(currentIndex)
+        } else {
+            resetWorkout()
+        }
+    }
+
+    fun skipExercise(currentIndex: Int) {
+        val workout = _currentWorkout.value ?: return
+        if (currentIndex < workout.exercises.size - 1) {
+            _trainingState.value = TrainingState.ActiveExercise(currentIndex + 1)
+        } else {
+            resetWorkout()
+        }
+    }
+
+    fun startNextExercise(nextIndex: Int) {
+        _trainingState.value = TrainingState.ActiveExercise(nextIndex)
+    }
+
+    fun toggleExerciseCompletion(exerciseId: String, completed: Boolean? = null) {
         val current = _currentWorkout.value ?: return
         val updatedExercises = current.exercises.map {
-            if (it.id == exerciseId) it.copy(isCompleted = !it.isCompleted) else it
+            if (it.id == exerciseId) it.copy(isCompleted = completed ?: !it.isCompleted) else it
         }
         val newPlan = current.copy(exercises = updatedExercises)
         _currentWorkout.value = newPlan
@@ -438,7 +575,13 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
             exercises.add(toIndex, item)
             val newPlan = current.copy(exercises = exercises)
             _currentWorkout.value = newPlan
-            viewModelScope.launch { persistWorkout(newPlan) }
+            // Performance: We don't persist on every swap during drag
+        }
+    }
+
+    fun persistCurrentWorkout() {
+        viewModelScope.launch {
+            persistWorkout(_currentWorkout.value)
         }
     }
 
@@ -446,12 +589,24 @@ class ClimbViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             _isLoadingPlan.value = true
             try {
+                val profileGradeVal = profileGrade.value.value.toFloat()
                 val avg = averageGrade.value
-                val gradeName = ClimbGrade.entries.minByOrNull { abs(it.value - avg) }?.label ?: "Unknown"
+                val effectiveGrade = if (avg == 0f) profileGradeVal else (avg + profileGradeVal) / 2f
+                val gradeName = ClimbGrade.entries.minByOrNull { abs(it.value.toFloat() - effectiveGrade) }?.label ?: "Unknown"
+                
+                val height = profileHeight.value
+                val weight = profileWeight.value
 
                 val promptText = """
-                    I am a boulderer. My current average climbing level is around '$gradeName' (Numeric value: $avg out of 5). 
-                    Based on this, provide a simple, maximum 10-step personalized training plan to help me progress.
+                    I am a boulderer. 
+                    - My current skill level is '$gradeName' (Numeric value: ${"%.1f".format(effectiveGrade)} out of 5.0). 
+                    - Physical Profile: $height cm, $weight kg.
+                    
+                    Based on this, provide a simple, maximum 10-step personalized training plan to help me progress. 
+                    Consider my physical profile:
+                    - If I am tall (>180cm), include advice on high-foot technique and core tension.
+                    - If I am heavier (>85kg), emphasize joint health and controlled power.
+
                     Keep it concise, formatting it as a numbered list.
                 """.trimIndent()
 

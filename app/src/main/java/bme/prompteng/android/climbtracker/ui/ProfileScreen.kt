@@ -48,6 +48,7 @@ fun ProfileScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
     val profileImageUri by viewModel.profileImageUri.collectAsState()
     
     var isEditingName by rememberSaveable { mutableStateOf(false) }
+    var tempName by rememberSaveable { mutableStateOf("") }
 
     val tips = listOf(
         "Pay attention to foot placement.",
@@ -118,9 +119,10 @@ fun ProfileScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
 
         // Name (Editable)
         if (isEditingName) {
+            val isNameValid = tempName.isNotBlank() && tempName.length <= 20
             TextField(
-                value = name,
-                onValueChange = { viewModel.updateProfileName(it) },
+                value = tempName,
+                onValueChange = { if (it.length <= 20) tempName = it },
                 modifier = Modifier.padding(horizontal = 32.dp),
                 textStyle = MaterialTheme.typography.headlineMedium.copy(
                     color = Color(0xFF00BCD4),
@@ -131,14 +133,43 @@ fun ProfileScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
                     focusedIndicatorColor = Color(0xFF00BCD4),
-                    unfocusedIndicatorColor = Color.LightGray
+                    unfocusedIndicatorColor = Color.LightGray,
+                    errorContainerColor = Color.Transparent
                 ),
                 singleLine = true,
+                isError = !isNameValid,
+                supportingText = {
+                    if (!isNameValid) {
+                        Text(
+                            text = if (tempName.isBlank()) "Name cannot be empty" else "Name too long",
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { isEditingName = false }),
+                keyboardActions = KeyboardActions(onDone = { 
+                    if (isNameValid) {
+                        viewModel.updateProfileName(tempName)
+                        isEditingName = false
+                    }
+                }),
                 trailingIcon = {
-                    IconButton(onClick = { isEditingName = false }) {
-                        Icon(imageVector = Icons.Default.CheckCircle, contentDescription = "Save", tint = Color(0xFF00BCD4))
+                    IconButton(
+                        onClick = { 
+                            if (isNameValid) {
+                                viewModel.updateProfileName(tempName)
+                                isEditingName = false 
+                            }
+                        },
+                        enabled = isNameValid
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle, 
+                            contentDescription = "Save", 
+                            tint = if (isNameValid) Color(0xFF00BCD4) else Color.Gray
+                        )
                     }
                 }
             )
@@ -149,7 +180,10 @@ fun ProfileScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
                     color = Color(0xFF00BCD4),
                     fontWeight = FontWeight.Medium
                 ),
-                modifier = Modifier.clickable { isEditingName = true }
+                modifier = Modifier.clickable { 
+                    tempName = name
+                    isEditingName = true 
+                }
             )
         }
 
@@ -173,6 +207,8 @@ fun ProfileScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
                     label = "Height",
                     value = height,
                     unit = "cm",
+                    min = 50,
+                    max = 250,
                     onValueSelected = { viewModel.updateProfileHeight(it) }
                 )
 
@@ -181,6 +217,8 @@ fun ProfileScreen(viewModel: ClimbViewModel, onHome: () -> Unit) {
                     label = "Weight",
                     value = weight,
                     unit = "kg",
+                    min = 20,
+                    max = 250,
                     onValueSelected = { viewModel.updateProfileWeight(it) }
                 )
                 
@@ -232,9 +270,12 @@ fun UnitNumberInput(
     label: String,
     value: Int,
     unit: String,
+    min: Int = 0,
+    max: Int = 999,
     onValueSelected: (Int) -> Unit
 ) {
     var textValue by remember(value) { mutableStateOf(value.toString()) }
+    val isError = textValue.toIntOrNull()?.let { it !in min..max } ?: true
 
     Column {
         Text(
@@ -247,13 +288,26 @@ fun UnitNumberInput(
         TextField(
             value = textValue,
             onValueChange = { newValue ->
-                // Only allow digits
                 val filtered = newValue.filter { it.isDigit() }
-                textValue = filtered
-                filtered.toIntOrNull()?.let { onValueSelected(it) }
+                if (filtered.length <= 3) {
+                    textValue = filtered
+                    filtered.toIntOrNull()?.let { 
+                        if (it in min..max) {
+                            onValueSelected(it)
+                        }
+                    }
+                }
             },
-            modifier = Modifier
-                .fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
+            isError = isError,
+            supportingText = {
+                if (isError) {
+                    Text(
+                        text = if (textValue.isEmpty()) "Required" else "Range: $min - $max",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
             shape = RoundedCornerShape(24.dp),
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = Color.White,
@@ -262,7 +316,8 @@ fun UnitNumberInput(
                 unfocusedIndicatorColor = Color.Transparent,
                 cursorColor = Color.Black,
                 focusedTextColor = Color.Black,
-                unfocusedTextColor = Color.Black
+                unfocusedTextColor = Color.Black,
+                errorContainerColor = Color.White
             ),
             suffix = {
                 Text(text = unit, color = Color.Gray)
@@ -281,7 +336,7 @@ fun GradeDropdown(selectedGrade: ClimbGrade, onGradeSelected: (ClimbGrade) -> Un
 
     Column {
         Text(
-            text = "Grade",
+            text = "Target grade",
             color = Color.White,
             fontSize = 18.sp,
             modifier = Modifier.padding(start = 12.dp, bottom = 4.dp)

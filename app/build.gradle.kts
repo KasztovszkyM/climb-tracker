@@ -36,6 +36,7 @@ android {
         // Expose API keys via BuildConfig
         buildConfigField("String", "GEMINI_API_KEY_TRAINING", "\"${getEnvProperty("GEMINI_API_KEY_TRAINING")}\"")
         buildConfigField("String", "GEMINI_API_KEY_BETA", "\"${getEnvProperty("GEMINI_API_KEY_BETA")}\"")
+        buildConfigField("String", "YOUTUBE_API_KEY", "\"${getEnvProperty("YOUTUBE_API_KEY")}\"")
     }
 
     buildTypes {
@@ -90,6 +91,8 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.camera.extensions)
+    implementation(libs.youtube.player)
+    implementation(libs.youtube.player.custom.ui)
     implementation("io.coil-kt:coil-compose:2.6.0")
 
     testImplementation(libs.junit)
